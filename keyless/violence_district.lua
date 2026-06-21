@@ -18,9 +18,11 @@ local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local HttpService         = game:GetService("HttpService")
 local RunService          = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService     = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 while not player do task.wait(0.1); player = Players.LocalPlayer end
+local mouse = player:GetMouse()
 local playerGui = player:WaitForChild("PlayerGui", 30)
 if not playerGui then return end
 
@@ -243,8 +245,22 @@ successHook = pcall(function()
     if not hookmetamethod then error("hookmetamethod not available") end
     
     oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-            if key == "WalkSpeed" then return GameIntendedSpeed end
+        if not checkcaller() then
+            if self == mouse then
+                if GetOpt("PistolAimbot", false) then
+                    if key == "Hit" or key == "hit" then
+                        local killerChar = getKillerChar()
+                        local hrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                        if hrp then return hrp.CFrame end
+                    elseif key == "Target" or key == "target" then
+                        local killerChar = getKillerChar()
+                        local hrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                        if hrp then return hrp end
+                    end
+                end
+            elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
+                if key == "WalkSpeed" then return GameIntendedSpeed end
+            end
         end
         return oldIndex(self, key)
     end))
@@ -272,8 +288,22 @@ if not successHook then
         
         setreadonly(mt, false)
         mt.__index = newcclosure(function(self, key)
-            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-                if key == "WalkSpeed" then return GameIntendedSpeed end
+            if not checkcaller() then
+                if self == mouse then
+                    if GetOpt("PistolAimbot", false) then
+                        if key == "Hit" or key == "hit" then
+                            local killerChar = getKillerChar()
+                            local hrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                            if hrp then return hrp.CFrame end
+                        elseif key == "Target" or key == "target" then
+                            local killerChar = getKillerChar()
+                            local hrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                            if hrp then return hrp end
+                        end
+                    end
+                elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
+                    if key == "WalkSpeed" then return GameIntendedSpeed end
+                end
             end
             return oldIndex(self, key)
         end)
@@ -295,9 +325,9 @@ if not successHook then
 end
 
 if successHook then
-    log("WalkSpeed metatable hook active.")
+    log("Movement & Mouse metatable hooks active.")
 else
-    log("WARNING: Metatable hook failed. Fallback to direct overrides.")
+    log("WARNING: Metatable hooks failed. Fallback to direct overrides.")
 end
 
 
@@ -310,6 +340,36 @@ local function isKiller(p)
     end
     if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") or char:FindFirstChild("Bat") then return true end
     return false
+end
+
+local function getKillerChar()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and isKiller(p) then
+            return p.Character
+        end
+    end
+    return nil
+end
+
+local function getNearestPallet()
+    local myHrp = getHRP(); if not myHrp then return nil end
+    local nearest, minD = nil, math.huge
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            local name = obj.Name:lower()
+            if name:find("pallet") or name:find("plank") then
+                local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    local d = (myHrp.Position - part.Position).Magnitude
+                    if d < minD then
+                        minD = d
+                        nearest = part
+                    end
+                end
+            end
+        end
+    end
+    return nearest
 end
 
 -- ─── ESP System ───────────────────────────────────────────────────────────────
@@ -516,8 +576,7 @@ end
 
 -- ─── Auto Repair ──────────────────────────────────────────────────────────────
 -- Game menggunakan sistem interaksi custom (bukan ProximityPrompt standar).
--- Solusi: tahan tombol E terus-menerus. Server hanya memproses jika karakter
--- benar-benar berada dalam jangkauan interaksi generator. Aman dari crash.
+-- Solusi: tahan tombol E terus-menerus.
 task.spawn(function()
     local holding = false
     while true do
@@ -540,6 +599,38 @@ end)
 
 
 -- ─── Auto Skill Check (Remote Hook) ──────────────────────────────────────────
+local function createVisualIndicator(zoneStart, zoneEnd)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "VDSkillCheckGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = playerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 200, 0, 200)
+    frame.Position = UDim2.new(0.5, -100, 0.4, -100)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0.5, 0)
+    Instance.new("UIStroke", frame).Color = Color3.fromRGB(255, 50, 50)
+
+    local successLabel = Instance.new("TextLabel")
+    successLabel.Size = UDim2.new(1, 0, 0, 30)
+    successLabel.Position = UDim2.new(0, 0, 0.45, -15)
+    successLabel.BackgroundTransparency = 1
+    successLabel.Text = "PERFECT!"
+    successLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
+    successLabel.Font = Enum.Font.GothamBold
+    successLabel.TextSize = 24
+    successLabel.Parent = frame
+
+    task.spawn(function()
+        task.wait(1.2)
+        screenGui:Destroy()
+    end)
+end
+
 task.spawn(function()
     local rem = ReplicatedStorage:WaitForChild("Remotes", 15)
     if not rem then return end
@@ -552,6 +643,7 @@ task.spawn(function()
         if scEvent and scResult then
             scEvent.OnClientEvent:Connect(function(...)
                 if GetOpt("AutoSkillCheck", false) then
+                    pcall(createVisualIndicator)
                     scResult:FireServer(true, true, ...)
                 end
             end)
@@ -566,6 +658,7 @@ task.spawn(function()
         if hEvent and hResult then
             hEvent.OnClientEvent:Connect(function(...)
                 if GetOpt("AutoSkillCheck", false) then
+                    pcall(createVisualIndicator)
                     hResult:FireServer(true, true, ...)
                 end
             end)
@@ -662,11 +755,49 @@ RunService.Stepped:Connect(function()
     end
 end)
 
+-- ─── Gocek Killer Listener ───────────────────────────────────────────────────
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local bind = GetOpt("JukeKey", Enum.KeyCode.V)
+    if typeof(bind) == "string" then
+        pcall(function() bind = Enum.KeyCode[bind] end)
+    end
+    if input.KeyCode == bind then
+        pcall(function()
+            local mode = GetOpt("JukeMode", "Behind Killer")
+            local myHrp = getHRP(); if not myHrp then return end
+            
+            if mode == "Behind Killer" then
+                local killerChar = getKillerChar()
+                local kHrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                if kHrp then
+                    myHrp.CFrame = kHrp.CFrame * CFrame.new(0, 0, 8)
+                    Fluent:Notify({Title="Gocek!", Content="Teleport di belakang Killer!", Duration=2})
+                else
+                    Fluent:Notify({Title="Error", Content="Killer tidak ditemukan!", Duration=2})
+                end
+            elseif mode == "Nearest Pallet" then
+                local pallet = getNearestPallet()
+                if pallet then
+                    myHrp.CFrame = pallet.CFrame + Vector3.new(0, 3, 0)
+                    Fluent:Notify({Title="Gocek!", Content="Teleport ke Pallet terdekat!", Duration=2})
+                else
+                    Fluent:Notify({Title="Error", Content="Pallet tidak ditemukan!", Duration=2})
+                end
+            elseif mode == "Backward Dash" then
+                myHrp.CFrame = myHrp.CFrame * CFrame.new(0, 0, 15)
+                Fluent:Notify({Title="Gocek!", Content="Backward Dash!", Duration=2})
+            end
+        end)
+    end
+end)
+
 -- ─── GUI Build ────────────────────────────────────────────────────────────────
 -- Survivor Tab
 local surSec=Tabs.Survivor:AddSection("Automation")
 surSec:AddToggle("AutoRepair",     {Title="Auto Repair Generator", Default=false, Callback=autoSave})
 surSec:AddToggle("AutoSkillCheck", {Title="Auto Skill Check (Perfect)", Default=false, Callback=autoSave})
+surSec:AddToggle("PistolAimbot",   {Title="Pistol Auto Hit (Silent Aim)", Default=false, Callback=autoSave})
 
 -- Killer Tab
 local kilSec=Tabs.Killer:AddSection("Automation")
@@ -691,6 +822,10 @@ end})
 local movSec=Tabs.Movement:AddSection("Movement")
 movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
 movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
+
+local jukeSec = Tabs.Movement:AddSection("Gocek Killer")
+jukeSec:AddDropdown("JukeMode", {Title="Juke Mode", Values={"Behind Killer", "Nearest Pallet", "Backward Dash"}, Default="Behind Killer", Callback=autoSave})
+jukeSec:AddKeybind("JukeKey", {Title="Juke Trigger Key", Default="V"})
 
 -- Settings Tab
 Tabs.Settings:AddButton({Title="Close / Unload", Callback=function()
