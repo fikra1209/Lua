@@ -695,6 +695,7 @@ local function updateCrosshair(enabled)
             crosshairGui = Instance.new("ScreenGui")
             crosshairGui.Name = "VDCrosshairGui"
             crosshairGui.ResetOnSpawn = false
+            crosshairGui.IgnoreGuiInset = true
             crosshairGui.Parent = cg
             
             -- Center Dot
