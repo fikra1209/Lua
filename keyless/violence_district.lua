@@ -475,7 +475,9 @@ end
 
 -- Scan ke seluruh workspace tapi HANYA untuk Model dengan nama yang sangat spesifik
 local function scanInterractables()
-    for _, obj in ipairs(workspace:GetDescendants()) do
+    local folder = workspace:FindFirstChild("Interractables")
+    local target = folder and folder:GetDescendants() or workspace:GetDescendants()
+    for _, obj in ipairs(target) do
         if obj:IsA("Model") then
             local label, color, espType = classifyByName(obj.Name)
             if label then
@@ -531,9 +533,11 @@ local function scanPlayers()
     end
 end
 
--- Hook DescendantAdded di workspace untuk objek yang spawn saat match mulai
+-- Hook DescendantAdded di workspace/Interractables untuk objek yang spawn saat match mulai
 local function hookInterractables()
-    workspace.DescendantAdded:Connect(function(obj)
+    local folder = workspace:FindFirstChild("Interractables")
+    local container = folder or workspace
+    container.DescendantAdded:Connect(function(obj)
         if obj:IsA("Model") then
             task.wait(0.3)
             local label, color, espType = classifyByName(obj.Name)
@@ -564,7 +568,6 @@ task.spawn(function()
     -- Rescan setiap 2 detik agar tidak ketinggalan objek yang spawn terlambat
     while true do
         task.wait(2)
-        pcall(scanInterractables)
         pcall(scanPlayers)
     end
 end)
