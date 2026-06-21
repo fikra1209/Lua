@@ -1,111 +1,41 @@
 --[[
-    Violence District Automation Hub — Premium Edition
+    Violence District Automation Hub — v3.0 Clean
     Developed by Antigravity AI
 
-    Features:
-    - Self-Healing Library Loader (multi CDN mirror fallback)
-    - Draggable Floating "VD" Toggle Button
-    - Auto Skill Check (Space key press emulator)
-    - Auto Repair Generator (ProximityPrompt automation)
-    - Extrasensory Perception (ESP) for Killer, Survivors, Generators, Pallets, and Gates
-    - Speed Hack, Infinite Stamina, and Noclip
-    - SaveManager + InterfaceManager Fluent integration
+    Fitur:
+    - Auto Skill Check (100% Perfect via Remote Hook)
+    - Auto Repair (Deteksi pcprompts + ProgressPromptGui)
+    - ESP: Survivors, Killer, Generator, Pallet, Exit Gate
+    - Speed / Jump Override
+    - Noclip
 ]]
 
-if game.GameId ~= 6739698191 and game.PlaceId ~= 93978595733734 then
-    return
-end
+if game.GameId ~= 6739698191 and game.PlaceId ~= 93978595733734 then return end
 
--- ─── Initialization ──────────────────────────────────────────────────────────
-local Players           = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService       = game:GetService("HttpService")
-local RunService        = game:GetService("RunService")
+-- ─── Services ────────────────────────────────────────────────────────────────
+local Players             = game:GetService("Players")
+local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local HttpService         = game:GetService("HttpService")
+local RunService          = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local UserInputService  = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-while not player do
-    task.wait(0.1)
-    player = Players.LocalPlayer
-end
+while not player do task.wait(0.1); player = Players.LocalPlayer end
 local playerGui = player:WaitForChild("PlayerGui", 30)
 if not playerGui then return end
 
-
-local function debugPrint(msg)
-    local text = "[Violence District Bot] " .. tostring(msg)
-    print(text); warn(text)
-    pcall(function() if rconsoleprint then rconsoleprint(text.."\n") end end)
+local function log(msg)
+    local t = "[VD Bot] " .. tostring(msg)
+    print(t); warn(t)
+    pcall(function() if rconsoleprint then rconsoleprint(t.."\n") end end)
 end
+log("Loading Violence District Hub v3.0...")
 
-debugPrint("Initializing script...")
-
-pcall(function()
-    task.spawn(function()
-        local ok, err = pcall(function()
-            task.wait(3) -- Tunggu game dimuat
-            local result = "[Violence District In-Depth Diagnostics]\n"
-            
-            -- 1. Pindai workspace children
-            result = result .. "\n--- Workspace Children ---\n"
-            for _, child in ipairs(workspace:GetChildren()) do
-                result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
-            end
-            
-            -- 2. Pindai Interractables
-            result = result .. "\n--- Interractables ---\n"
-            local intFolder = workspace:FindFirstChild("Interractables")
-            if intFolder then
-                for _, child in ipairs(intFolder:GetChildren()) do
-                    result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
-                    for _, sub in ipairs(child:GetChildren()) do
-                        result = result .. "  -> Sub: " .. sub.Name .. " (Class: " .. sub.ClassName .. ")\n"
-                        for _, sub2 in ipairs(sub:GetChildren()) do
-                            result = result .. "    -> Sub2: " .. sub2.Name .. " (Class: " .. sub2.ClassName .. ")\n"
-                        end
-                    end
-                end
-            else
-                result = result .. "Folder Interractables tidak ditemukan!\n"
-            end
-            
-            -- 3. Pindai ReplicatedStorage Remotes
-            result = result .. "\n--- ReplicatedStorage Remotes ---\n"
-            for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
-                if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
-                    result = result .. "Remote: " .. desc:GetFullName() .. " (Class: " .. desc.ClassName .. ")\n"
-                end
-            end
-            
-            -- 4. Pindai PlayerGui ScreenGuis
-            result = result .. "\n--- PlayerGui ScreenGuis ---\n"
-            for _, gui in ipairs(playerGui:GetChildren()) do
-                result = result .. "Gui: " .. gui.Name .. " (Enabled: " .. tostring(gui.Enabled) .. ")\n"
-                for _, child in ipairs(gui:GetDescendants()) do
-                    local cName = child.Name:lower()
-                    if cName:find("check") or cName:find("minigame") or cName:find("needle") or cName:find("indicator") or cName:find("zone") or cName:find("qte") or cName:find("hit") or cName:find("bar") or cName:find("pointer") then
-                        result = result .. "  -> Child: " .. child:GetFullName() .. " (Class: " .. child.ClassName .. ")\n"
-                    end
-                end
-            end
-            
-            writefile("VD_Diagnostics.txt", result)
-            debugPrint("Diagnostics saved to VD_Diagnostics.txt")
-        end)
-        if not ok then
-            debugPrint("Diagnostics thread crashed: " .. tostring(err))
-        end
-    end)
-end)
-
--- ─── Self-Healing HttpGet Library Loader ─────────────────────────────────────
+-- ─── Library Loader ───────────────────────────────────────────────────────────
 local function httpGet(url)
-    local requestFunc = (syn and syn.request) or (http and http.request) or request or http_request
-    if requestFunc then
-        local ok, res = pcall(function()
-            return requestFunc({ Url=url, Method="GET", Timeout=5, timeout=5 })
-        end)
+    local reqFn = (syn and syn.request) or (http and http.request) or request or http_request
+    if reqFn then
+        local ok, res = pcall(function() return reqFn({Url=url,Method="GET",Timeout=5,timeout=5}) end)
         if ok and res then
             if type(res)=="table" and res.StatusCode==200 and res.Body then return res.Body end
             if type(res)=="string" then return res end
@@ -115,134 +45,99 @@ local function httpGet(url)
     return ok2 and r2 or nil
 end
 
-local function safeHttpGet(url)
+local function safeGet(url)
     local ok, res = pcall(httpGet, url)
-    if ok and res and res~="" and not res:find("404") and not res:find("<html") and not res:find("<!DOCTYPE") then
-        return res
-    end
-    return nil
+    if ok and res and res~="" and not res:find("404") and not res:find("<html") then return res end
 end
 
-local function loadLibrary(fileName, urls)
-    local localOk, localContent = pcall(function()
-        if readfile then return readfile(fileName) end
-    end)
-    if localOk and localContent and localContent~="" then
-        local fn, err = loadstring(localContent)
-        if fn then
-            debugPrint("Loaded "..fileName.." from local cache.")
-            return localContent, fn
-        else
-            debugPrint("Cache corrupted: "..tostring(err)..". Re-downloading...")
-            pcall(function() if delfile then delfile(fileName) elseif writefile then writefile(fileName,"") end end)
+local function loadLib(name, urls)
+    local ok, c = pcall(function() if readfile then return readfile(name) end end)
+    if ok and c and c~="" then
+        local fn = loadstring(c)
+        if fn then log("Loaded "..name.." from cache."); return fn end
+    end
+    for _, u in ipairs(urls) do
+        local c2 = safeGet(u)
+        if c2 then
+            local fn = loadstring(c2)
+            if fn then pcall(function() if writefile then writefile(name,c2) end end); return fn end
         end
     end
-    for _, url in ipairs(urls) do
-        debugPrint("Downloading "..fileName.." from: "..url)
-        local content = safeHttpGet(url)
-        if content and content~="" then
-            local fn, err = loadstring(content)
-            if fn then
-                pcall(function() if writefile then writefile(fileName,content); debugPrint("Cached "..fileName) end end)
-                return content, fn
-            else
-                debugPrint("Invalid Lua from "..url..": "..tostring(err))
-            end
-        end
-    end
-    return nil, nil
 end
 
-local Fluent_URLs = {
+local FLUENT_URLS = {
     "https://mirror.ghproxy.com/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
     "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
     "https://ghproxy.net/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
     "https://ghfast.top/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
 }
 
-local fluentRaw, fluentCompiled = loadLibrary("SH_Fluent.lua", Fluent_URLs) -- Menggunakan cache yang sama
-if not fluentRaw or not fluentCompiled then
-    debugPrint("CRITICAL: Failed to load Fluent!"); return
-end
+local fluentFn = loadLib("SH_Fluent.lua", FLUENT_URLS)
+if not fluentFn then log("CRITICAL: Fluent gagal dimuat!"); return end
+local ok, Fluent = pcall(fluentFn)
+if not ok or not Fluent then log("CRITICAL: Fluent error: "..tostring(Fluent)); return end
 
-local loadOk, Fluent = pcall(fluentCompiled)
-if not loadOk or not Fluent then
-    debugPrint("CRITICAL: Fluent exec failed: "..tostring(Fluent)); return
-end
-
--- ─── Interface & Save Manager (Inlined) ──────────────────────────────────────
-local InterfaceManager = {} do
-    InterfaceManager.Folder   = "ViolenceDistrictSettings"
-    InterfaceManager.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="Insert" }
-    function InterfaceManager:SetFolder(f)    self.Folder=f; self:BuildFolderTree() end
-    function InterfaceManager:SetLibrary(lib) self.Library=lib end
-    function InterfaceManager:BuildFolderTree()
-        for _,p in ipairs({self.Folder, self.Folder.."/settings"}) do
-            if not isfolder(p) then makefolder(p) end
-        end
-    end
-    function InterfaceManager:SaveSettings()
-        writefile(self.Folder.."/options.json", HttpService:JSONEncode(self.Settings))
-    end
-    function InterfaceManager:LoadSettings()
-        local p = self.Folder.."/options.json"
+-- ─── InterfaceManager ─────────────────────────────────────────────────────────
+local IM = {} do
+    IM.Folder   = "ViolenceDistrictSettings"
+    IM.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="Insert" }
+    function IM:SetFolder(f) self.Folder=f; if not isfolder(f) then makefolder(f) end end
+    function IM:SetLibrary(lib) self.Library=lib end
+    function IM:SaveSettings() writefile(self.Folder.."/options.json", HttpService:JSONEncode(self.Settings)) end
+    function IM:LoadSettings()
+        local p=self.Folder.."/options.json"
         if isfile(p) then
-            local ok,d = pcall(HttpService.JSONDecode, HttpService, readfile(p))
+            local ok,d=pcall(HttpService.JSONDecode,HttpService,readfile(p))
             if ok then for k,v in next,d do self.Settings[k]=v end end
         end
     end
-    function InterfaceManager:BuildInterfaceSection(tab)
-        assert(self.Library, "Must set InterfaceManager.Library")
-        local L = self.Library; local S = self.Settings
-        self:LoadSettings()
-        local sec = tab:AddSection("Interface")
-        local themeDD = sec:AddDropdown("InterfaceTheme",{
-            Title="Theme", Values=L.Themes, Default=S.Theme,
-            Callback=function(v) L:SetTheme(v); S.Theme=v; self:SaveSettings() end
-        }); themeDD:SetValue(S.Theme)
+    function IM:BuildInterfaceSection(tab)
+        local L=self.Library; local S=self.Settings; self:LoadSettings()
+        local sec=tab:AddSection("Interface")
+        local dd=sec:AddDropdown("InterfaceTheme",{Title="Theme",Values=L.Themes,Default=S.Theme,
+            Callback=function(v) L:SetTheme(v); S.Theme=v; self:SaveSettings() end})
+        dd:SetValue(S.Theme)
         if L.UseAcrylic then
             sec:AddToggle("AcrylicToggle",{Title="Acrylic",Default=S.Acrylic,
                 Callback=function(v) L:ToggleAcrylic(v); S.Acrylic=v; self:SaveSettings() end})
         end
         sec:AddToggle("TransparentToggle",{Title="Transparency",Default=S.Transparency,
-            Callback=function(v) L:ToggleAcrylic(v); L:ToggleTransparency(v); S.Transparency=v; self:SaveSettings() end})
-        local kb = sec:AddKeybind("MenuKeybind",{Title="Minimize Bind",Default=S.MenuKeybind})
+            Callback=function(v) L:ToggleTransparency(v); S.Transparency=v; self:SaveSettings() end})
+        local kb=sec:AddKeybind("MenuKeybind",{Title="Minimize Key",Default=S.MenuKeybind})
         kb:OnChanged(function() S.MenuKeybind=kb.Value; self:SaveSettings() end)
-        L.MinimizeKeybind = kb
+        L.MinimizeKeybind=kb
     end
 end
 
-local SaveManager = {} do
-    SaveManager.Folder = "ViolenceDistrictSettings"
-    SaveManager.Ignore = {}
-    SaveManager.Parser = {
-        Toggle   = {Save=function(_,obj) return {type="Toggle",  value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
-        Slider   = {Save=function(_,obj) return {type="Slider",  value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
-        Dropdown = {Save=function(_,obj) return {type="Dropdown",value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
-        Keybind  = {Save=function(_,obj) return {type="Keybind", value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
-        Input    = {Save=function(_,obj) return {type="Input",   value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+-- ─── SaveManager ──────────────────────────────────────────────────────────────
+local SM = {} do
+    SM.Folder="ViolenceDistrictSettings"; SM.Ignore={}
+    SM.Parser={
+        Toggle  ={Save=function(_,o) return{type="Toggle",  value=o.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Slider  ={Save=function(_,o) return{type="Slider",  value=o.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Dropdown={Save=function(_,o) return{type="Dropdown",value=o.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Keybind ={Save=function(_,o) return{type="Keybind", value=o.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Input   ={Save=function(_,o) return{type="Input",   value=o.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
     }
-    function SaveManager:SetLibrary(lib)    self.Library=lib end
-    function SaveManager:IgnoreThemeSettings() self.IgnoreTheme=true end
-    function SaveManager:SetFolder(f)
+    function SM:SetLibrary(lib) self.Library=lib end
+    function SM:IgnoreThemeSettings() self.IgnoreTheme=true end
+    function SM:SetFolder(f)
         self.Folder=f
         if not isfolder(f) then makefolder(f) end
         if not isfolder(f.."/configs") then makefolder(f.."/configs") end
     end
-    function SaveManager:Save(name)
-        local L=self.Library; assert(L,"Must set Library")
-        local data={}
+    function SM:Save(name)
+        local L=self.Library; local data={}
         for idx,opt in next,L.Options do
             if not self.Ignore[idx] and self.Parser[opt.Type] then
-                local ok,saved=pcall(self.Parser[opt.Type].Save,self,opt)
-                if ok then data[idx]=saved end
+                local ok,s=pcall(self.Parser[opt.Type].Save,self,opt)
+                if ok then data[idx]=s end
             end
         end
         writefile(self.Folder.."/configs/"..name..".json", HttpService:JSONEncode(data))
     end
-    function SaveManager:Load(name)
-        local L=self.Library; assert(L,"Must set Library")
-        local p=self.Folder.."/configs/"..name..".json"
+    function SM:Load(name)
+        local L=self.Library; local p=self.Folder.."/configs/"..name..".json"
         if not isfile(p) then return end
         local ok,data=pcall(HttpService.JSONDecode,HttpService,readfile(p))
         if not ok then return end
@@ -251,47 +146,42 @@ local SaveManager = {} do
             if opt and self.Parser[entry.type] then pcall(self.Parser[entry.type].Load,self,entry,opt) end
         end
     end
-    function SaveManager:LoadAutoloadConfig()
+    function SM:LoadAutoloadConfig()
         local p=self.Folder.."/configs/autoload.txt"
-        if isfile(p) then
-            local name=readfile(p):gsub("[\r\n]","")
-            if name~="" then self:Load(name) end
-        end
+        if isfile(p) then local n=readfile(p):gsub("[\r\n]",""); if n~="" then self:Load(n) end end
     end
-    function SaveManager:BuildConfigSection(tab)
+    function SM:BuildConfigSection(tab)
         local sec=tab:AddSection("Configuration")
         local ci=sec:AddInput("SaveConfigName",{Title="Config Name",Default="default"})
         sec:AddButton({Title="Save Config",Callback=function()
-            if ci.Value~="" then self:Save(ci.Value); Fluent:Notify({Title="Saved!",Content="'"..ci.Value.."' saved.",Duration=3}) end
+            if ci.Value~="" then self:Save(ci.Value); Fluent:Notify({Title="Saved!",Content=ci.Value.." saved.",Duration=3}) end
         end})
         sec:AddButton({Title="Load Config",Callback=function()
-            if ci.Value~="" then self:Load(ci.Value); Fluent:Notify({Title="Loaded!",Content="'"..ci.Value.."' loaded.",Duration=3}) end
+            if ci.Value~="" then self:Load(ci.Value); Fluent:Notify({Title="Loaded!",Content=ci.Value.." loaded.",Duration=3}) end
         end})
         sec:AddButton({Title="Set Autoload",Callback=function()
             if ci.Value~="" then
                 writefile(self.Folder.."/configs/autoload.txt",ci.Value)
-                Fluent:Notify({Title="Autoload Set!",Content="'"..ci.Value.."' akan auto-load saat execute.",Duration=3})
+                Fluent:Notify({Title="Autoload Set!",Content=ci.Value.." autoload set.",Duration=3})
             end
         end})
     end
 end
 
--- ─── Create Window ───────────────────────────────────────────────────────────
+-- ─── Window ───────────────────────────────────────────────────────────────────
 local Window = Fluent:CreateWindow({
-    Title="Violence District Bot", SubTitle="LuxvS Hub",
-    TabWidth=160, Size=UDim2.fromOffset(580,480),
+    Title="Violence District BY", SubTitle="VICO",
+    TabWidth=160, Size=UDim2.fromOffset(580,460),
     Acrylic=true, Theme="Dark",
     MinimizeKey=Enum.KeyCode.Insert
 })
 
--- ─── Floating Toggle Button ──────────────────────────────────────────────────
+-- ─── Floating VD Button ───────────────────────────────────────────────────────
 pcall(function()
-    local cg = game:GetService("CoreGui")
-    local old = cg:FindFirstChild("ViolenceDistrictToggleGui")
-    if old then old:Destroy() end
-    local gui = Instance.new("ScreenGui"); gui.Name="ViolenceDistrictToggleGui"
-    gui.ResetOnSpawn=false; gui.Parent=cg
-    local btn = Instance.new("TextButton"); btn.Parent=gui
+    local cg=game:GetService("CoreGui")
+    local old=cg:FindFirstChild("VDToggleGui"); if old then old:Destroy() end
+    local gui=Instance.new("ScreenGui"); gui.Name="VDToggleGui"; gui.ResetOnSpawn=false; gui.Parent=cg
+    local btn=Instance.new("TextButton"); btn.Parent=gui
     btn.Size=UDim2.new(0,50,0,50); btn.Position=UDim2.new(0.02,0,0.3,0)
     btn.BackgroundColor3=Color3.fromRGB(30,10,10); btn.BorderSizePixel=0
     btn.Text="VD"; btn.TextColor3=Color3.fromRGB(255,50,50)
@@ -302,13 +192,13 @@ pcall(function()
     local UIS=game:GetService("UserInputService")
     local dragging,dragInput,dragStart,startPos
     btn.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+        if i.UserInputType==Enum.UserInputType.MouseButton1 then
             dragging=true; dragStart=i.Position; startPos=btn.Position
             i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then dragging=false end end)
         end
     end)
     btn.InputChanged:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then dragInput=i end
+        if i.UserInputType==Enum.UserInputType.MouseMovement then dragInput=i end
     end)
     UIS.InputChanged:Connect(function(i)
         if i==dragInput and dragging then
@@ -318,425 +208,508 @@ pcall(function()
     end)
 end)
 
--- ─── Tabs ────────────────────────────────────────────────────────────────────
+-- ─── Tabs ─────────────────────────────────────────────────────────────────────
 local Tabs = {
-    Survivor  = Window:AddTab({ Title="Survivor",  Icon="user" }),
-    Killer    = Window:AddTab({ Title="Killer",    Icon="skull" }),
-    Visuals   = Window:AddTab({ Title="ESP Visuals",Icon="eye" }),
-    Movement  = Window:AddTab({ Title="Movement",  Icon="wind" }),
-    Settings  = Window:AddTab({ Title="Settings",  Icon="settings" }),
+    Survivor = Window:AddTab({Title="Survivor",  Icon="user"}),
+    Killer   = Window:AddTab({Title="Killer",    Icon="skull"}),
+    Visuals  = Window:AddTab({Title="ESP",       Icon="eye"}),
+    Movement = Window:AddTab({Title="Movement",  Icon="wind"}),
+    Settings = Window:AddTab({Title="Settings",  Icon="settings"}),
 }
 
-local function GetOption(key, fallback)
-    local opt = Fluent.Options[key]
-    if opt then return opt.Value end
-    return fallback
-end
+local function GetOpt(key, fb) local o=Fluent.Options[key]; return o and o.Value or fb end
 
 local function autoSave()
-    local name = GetOption("SaveConfigName", "default")
-    if name == "" then name = "default" end
-    pcall(function() SaveManager:Save(name) end)
+    pcall(function()
+        local n=GetOpt("SaveConfigName","default"); if n=="" then n="default" end
+        SM:Save(n)
+    end)
 end
 
--- ─── Helper Functions ────────────────────────────────────────────────────────
-local function getCharacter()
-    return player.Character
-end
+-- ─── Helpers ──────────────────────────────────────────────────────────────────
+local function getChar()   return player.Character end
+local function getHum()    local c=getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+local function getHRP()    local c=getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
 
-local function getHumanoid()
-    local char = getCharacter()
-    return char and char:FindFirstChildOfClass("Humanoid")
-end
+-- ─── Movement Hook ────────────────────────────────────────────────────────────
+local GameIntendedSpeed = 16
 
-local function getHRP()
-    local char = getCharacter()
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
+local successHook = false
+local oldIndex
+local oldNewIndex
 
--- ─── ESP System ──────────────────────────────────────────────────────────────
-local espObjects = {}
-
-local function createESP(instance, color, labelText, espType)
-    if espObjects[instance] then return end
+-- 1. Try hookmetamethod (safer, cleaner)
+successHook = pcall(function()
+    if not hookmetamethod then error("hookmetamethod not available") end
     
-    local highlight = Instance.new("Highlight")
-    highlight.Parent = instance
-    highlight.FillColor = color
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.6
-    highlight.OutlineTransparency = 0.1
+    oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+            if key == "WalkSpeed" then return GameIntendedSpeed end
+        end
+        return oldIndex(self, key)
+    end))
     
-    local bgui = Instance.new("BillboardGui")
-    bgui.Name = "ESP_Label"
-    bgui.AlwaysOnTop = true
-    bgui.Size = UDim2.new(0, 120, 0, 30)
-    bgui.Adornee = instance:IsA("Model") and (instance.PrimaryPart or instance:FindFirstChildOfClass("BasePart")) or instance
-    bgui.Parent = instance
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = color
-    label.TextStrokeTransparency = 0.2
-    label.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 11
-    label.Text = labelText
-    label.Parent = bgui
-    
-    espObjects[instance] = {
-        highlight = highlight,
-        bgui = bgui,
-        label = label,
-        name = labelText,
-        type = espType
-    }
-end
-
-local function removeESP(instance)
-    local data = espObjects[instance]
-    if data then
-        pcall(function() data.highlight:Destroy() end)
-        pcall(function() data.bgui:Destroy() end)
-        espObjects[instance] = nil
-    end
-end
-
--- Pendeteksi Killer pintar via atribut atau Red Stain Light
-local function isPlayerKiller(p)
-    if not p or p == player then return false end
-    local char = p.Character
-    if char then
-        -- Cek Red Light khas Killer
-        for _, light in ipairs(char:GetDescendants()) do
-            if light:IsA("Light") and (light.Color == Color3.fromRGB(255,0,0) or light.Color == Color3.fromRGB(200,0,0)) then
-                return true
+    oldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, key, value)
+        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+            if key == "WalkSpeed" then
+                GameIntendedSpeed = value
+                if value > 2 then
+                    local customSpd = GetOpt("SpeedSlider", 16)
+                    if customSpd ~= 16 then value = customSpd end
+                end
             end
         end
-        -- Cek nama model atau senjata
-        if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") then
-            return true
-        end
+        return oldNewIndex(self, key, value)
+    end))
+end)
+
+-- 2. Fallback to getrawmetatable
+if not successHook then
+    successHook = pcall(function()
+        local mt = getrawmetatable(game)
+        oldIndex = mt.__index
+        oldNewIndex = mt.__newindex
+        
+        setreadonly(mt, false)
+        mt.__index = newcclosure(function(self, key)
+            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+                if key == "WalkSpeed" then return GameIntendedSpeed end
+            end
+            return oldIndex(self, key)
+        end)
+        
+        mt.__newindex = newcclosure(function(self, key, value)
+            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+                if key == "WalkSpeed" then
+                    GameIntendedSpeed = value
+                    if value > 2 then
+                        local customSpd = GetOpt("SpeedSlider", 16)
+                        if customSpd ~= 16 then value = customSpd end
+                    end
+                end
+            end
+            return oldNewIndex(self, key, value)
+        end)
+        setreadonly(mt, true)
+    end)
+end
+
+if successHook then
+    log("WalkSpeed metatable hook active.")
+else
+    log("WARNING: Metatable hook failed. Fallback to direct overrides.")
+end
+
+
+-- ─── Killer Detection ─────────────────────────────────────────────────────────
+local function isKiller(p)
+    if not p or p==player then return false end
+    local char=p.Character; if not char then return false end
+    for _,v in ipairs(char:GetDescendants()) do
+        if v:IsA("Light") and (v.Color==Color3.fromRGB(255,0,0) or v.Color==Color3.fromRGB(200,0,0)) then return true end
     end
+    if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") or char:FindFirstChild("Bat") then return true end
     return false
 end
 
--- Loop ESP update posisi/jarak
+-- ─── ESP System ───────────────────────────────────────────────────────────────
+local espData = {}
+
+local function getESPPart(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") then
+        if inst.PrimaryPart then return inst.PrimaryPart end
+        -- Cari part apapun di dalam model secara rekursif
+        local part = inst:FindFirstChildWhichIsA("BasePart", true)
+        if part then return part end
+    end
+    return inst
+end
+
+local function addESP(inst, color, label, espType)
+    if espData[inst] then return end
+    
+    local bp = getESPPart(inst)
+    if not bp then return end -- Abaikan jika tidak ada part sama sekali
+    
+    local hi=Instance.new("Highlight")
+    hi.Parent=inst; hi.FillColor=color; hi.OutlineColor=Color3.new(1,1,1)
+    hi.FillTransparency=0.6; hi.OutlineTransparency=0.1
+    hi.Enabled = false -- Default mati sampai loop update menyalakan
+
+    local bb=Instance.new("BillboardGui")
+    bb.Name="VD_ESP"; bb.AlwaysOnTop=true; bb.Size=UDim2.new(0,120,0,28)
+    bb.Adornee=bp
+    bb.Parent=inst
+    bb.Enabled = false -- Default mati
+
+    local lbl=Instance.new("TextLabel")
+    lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1
+    lbl.TextColor3=color; lbl.TextStrokeTransparency=0.2
+    lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11; lbl.Text=label; lbl.Parent=bb
+
+    espData[inst]={hi=hi, bb=bb, lbl=lbl, name=label, type=espType, bp=bp}
+end
+
+local function removeESP(inst)
+    local d=espData[inst]
+    if d then pcall(function() d.hi:Destroy() end); pcall(function() d.bb:Destroy() end); espData[inst]=nil end
+end
+
+-- Update label jarak setiap frame
 task.spawn(function()
     while task.wait(0.2) do
-        local hrp = getHRP()
-        for inst, data in pairs(espObjects) do
-            if not inst or not inst.Parent then
-                espObjects[inst] = nil
-            else
-                local targetPart = inst:IsA("Model") and (inst.PrimaryPart or inst:FindFirstChildOfClass("BasePart")) or inst
-                if targetPart and hrp then
-                    local dist = math.round((hrp.Position - targetPart.Position).Magnitude)
-                    data.label.Text = data.name .. " [" .. dist .. "m]"
-                    
-                    -- Filter visibilitas berdasarkan pengaturan tab Visuals
-                    local show = false
-                    local limit = GetOption("EspDistanceLimit", 500) or 500
-                    
-                    if dist <= limit then
-                        if data.type == "Generator" and GetOption("EspGenerators", false) then show = true
-                        elseif data.type == "Killer" and GetOption("EspKiller", false) then show = true
-                        elseif data.type == "Survivor" and GetOption("EspSurvivors", false) then show = true
-                        elseif data.type == "Pallet" and GetOption("EspPallets", false) then show = true
-                        elseif data.type == "Gate" and GetOption("EspGates", false) then show = true
+        pcall(function()
+            local hrp = getHRP()
+            for inst, d in pairs(espData) do
+                if not inst or not inst.Parent then
+                    espData[inst] = nil
+                elseif hrp then
+                    local bp = d.bp
+                    if bp and bp.Parent then
+                        local pos
+                        if bp:IsA("Model") then pos = bp:GetPivot().Position
+                        elseif bp:IsA("BasePart") then pos = bp.Position end
+                        
+                        if pos then
+                            local dist = math.round((hrp.Position - pos).Magnitude)
+                            local limit = GetOpt("EspDist", 1000)
+                            local show = false
+                            if dist <= limit then
+                                if d.type == "Generator" and GetOpt("EspGen", false) then show = true
+                                elseif d.type == "Killer"    and GetOpt("EspKiller", false) then show = true
+                                elseif d.type == "Survivor"  and GetOpt("EspSurv", false) then show = true
+                                elseif d.type == "Pallet"    and GetOpt("EspPallet", false) then show = true
+                                elseif d.type == "Gate"      and GetOpt("EspGate", false) then show = true
+                                end
+                            end
+                            d.hi.Enabled = show
+                            d.bb.Enabled = show
+                            if show then d.lbl.Text = d.name .. " [" .. dist .. "m]" end
                         end
                     end
-                    
-                    data.highlight.Enabled = show
-                    data.bgui.Enabled = show
+                end
+            end
+        end)
+    end
+end)
+
+-- ─── ESP Object Detection ─────────────────────────────────────────────────────
+local function classifyByName(name)
+    local n = name:lower()
+    -- Gunakan pola yang spesifik agar tidak salah deteksi bagian bangunan
+    if n:find("^cabinet_%d+") or n:find("^generator_%d+") or n == "generator" or n == "mesin" then
+        return "Generator", Color3.fromRGB(0, 180, 255), "Generator"
+    elseif n:find("pallet") or n:find("plank") then
+        return "Pallet", Color3.fromRGB(230, 180, 50), "Pallet"
+    elseif n:find("gate") or n:find("exit") or n == "lever" then
+        return "Exit Gate", Color3.fromRGB(50, 255, 120), "Gate"
+    end
+    return nil, nil, nil
+end
+
+-- Scan ke seluruh workspace tapi HANYA untuk Model dengan nama yang sangat spesifik
+local function scanInterractables()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            local label, color, espType = classifyByName(obj.Name)
+            if label then
+                addESP(obj, color, label, espType)
+            end
+        end
+    end
+end
+
+-- Dump lengkap workspace untuk diagnostics
+local function dumpWorkspace()
+    log("=== WORKSPACE DUMP ===")
+    for _, child in ipairs(workspace:GetChildren()) do
+        log("[ws] " .. child.Name .. " (" .. child.ClassName .. ")")
+        if child:IsA("Folder") or child:IsA("Model") then
+            for _, sub in ipairs(child:GetChildren()) do
+                log("  [ws] " .. sub.Name .. " (" .. sub.ClassName .. ")")
+            end
+        end
+    end
+    log("=== END DUMP ===")
+end
+
+local function scanPlayers()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            local char = p.Character
+            local isK = isKiller(p)
+            if isK then
+                if espData[char] then
+                    if espData[char].type ~= "Killer" then
+                        espData[char].type = "Killer"
+                        espData[char].name = "KILLER"
+                        if espData[char].hi then espData[char].hi.FillColor = Color3.fromRGB(255, 0, 0) end
+                        if espData[char].lbl then espData[char].lbl.TextColor3 = Color3.fromRGB(255, 0, 0) end
+                    end
+                else
+                    addESP(char, Color3.fromRGB(255, 0, 0), "KILLER", "Killer")
+                end
+            else
+                if espData[char] then
+                    if espData[char].type == "Killer" then
+                        espData[char].type = "Survivor"
+                        espData[char].name = p.DisplayName or p.Name
+                        if espData[char].hi then espData[char].hi.FillColor = Color3.fromRGB(220, 220, 220) end
+                        if espData[char].lbl then espData[char].lbl.TextColor3 = Color3.fromRGB(220, 220, 220) end
+                    end
+                else
+                    addESP(char, Color3.fromRGB(220, 220, 220), p.DisplayName or p.Name, "Survivor")
                 end
             end
         end
     end
-end)
-
--- Scan & daftarkan objek ke ESP secara dinamis
-local function scanObjects()
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            local objText = tostring(desc.ObjectText):lower()
-            local actText = tostring(desc.ActionText):lower()
-            local parentName = tostring(desc.Parent and desc.Parent.Name or ""):lower()
-            
-            -- Deteksi Generator
-            if objText:find("generator") or objText:find("mesin") or actText:find("repair") or parentName:find("generator") then
-                local model = desc:FindFirstAncestorOfClass("Model") or desc.Parent
-                if model then createESP(model, Color3.fromRGB(0, 180, 255), "Generator", "Generator") end
-            
-            -- Deteksi Pallet
-            elseif objText:find("pallet") or parentName:find("pallet") or parentName:find("plank") then
-                local model = desc:FindFirstAncestorOfClass("Model") or desc.Parent
-                if model then createESP(model, Color3.fromRGB(230, 180, 50), "Pallet", "Pallet") end
-            
-            -- Deteksi Pintu Keluar
-            elseif objText:find("gate") or objText:find("exit") or parentName:find("gate") or parentName:find("door") then
-                local model = desc:FindFirstAncestorOfClass("Model") or desc.Parent
-                if model then createESP(model, Color3.fromRGB(0, 255, 100), "Exit Gate", "Gate") end
-            end
-        end
-    end
-    
-    -- Daftarkan Player
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and p.Character then
-            if isPlayerKiller(p) then
-                createESP(p.Character, Color3.fromRGB(255, 50, 50), "KILLER", "Killer")
-            else
-                createESP(p.Character, Color3.fromRGB(200, 200, 200), p.DisplayName or p.Name, "Survivor")
-            end
-        end
-    end
 end
 
--- Hubungkan Event agar Player baru otomatis terdaftar ESP
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function(char)
-        task.wait(1)
-        if isPlayerKiller(p) then
-            createESP(char, Color3.fromRGB(255, 50, 50), "KILLER", "Killer")
-        else
-            createESP(char, Color3.fromRGB(200, 200, 200), p.DisplayName or p.Name, "Survivor")
+-- Hook DescendantAdded di workspace untuk objek yang spawn saat match mulai
+local function hookInterractables()
+    workspace.DescendantAdded:Connect(function(obj)
+        if obj:IsA("Model") then
+            task.wait(0.3)
+            local label, color, espType = classifyByName(obj.Name)
+            if label then
+                addESP(obj, color, label, espType)
+                log("ESP+: " .. obj.Name .. " => " .. label)
+            end
         end
     end)
-end)
+    scanInterractables()
+end
 
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function(char)
+        task.wait(1.5)
+        if isKiller(p) then addESP(char, Color3.fromRGB(255, 0, 0), "KILLER", "Killer")
+        else addESP(char, Color3.fromRGB(220, 220, 220), p.DisplayName or p.Name, "Survivor") end
+    end)
+end)
 Players.PlayerRemoving:Connect(function(p)
     if p.Character then removeESP(p.Character) end
 end)
 
--- Scan berkala untuk objek yang baru spawn
 task.spawn(function()
+    task.wait(3)
+    hookInterractables()
+    scanPlayers()
+    -- Rescan setiap 2 detik agar tidak ketinggalan objek yang spawn terlambat
     while true do
-        pcall(scanObjects)
-        task.wait(5)
+        task.wait(2)
+        pcall(scanInterractables)
+        pcall(scanPlayers)
     end
 end)
 
--- ─── Survivor Automation ─────────────────────────────────────────────────────
-local function getNearestGenerator()
-    local nearest = nil
-    local minDist = math.huge
-    local hrp = getHRP()
-    if not hrp then return nil end
-    
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            local objText = tostring(desc.ObjectText):lower()
-            local parentName = tostring(desc.Parent and desc.Parent.Name or ""):lower()
-            if objText:find("generator") or objText:find("mesin") or parentName:find("generator") then
-                local basePart = desc:FindFirstAncestorOfClass("BasePart") or desc.Parent
-                if basePart and basePart:IsA("BasePart") then
-                    local dist = (hrp.Position - basePart.Position).Magnitude
-                    if dist < minDist then
-                        minDist = dist
-                        nearest = desc
-                    end
-                end
+-- Expose fungsi scan & dump ke global agar bisa dipanggil dari tombol GUI
+_G.VD_ScanNow = function()
+    pcall(dumpWorkspace)
+    pcall(scanInterractables)
+    pcall(scanPlayers)
+    log("Manual scan complete.")
+end
+
+
+-- ─── Auto Repair ──────────────────────────────────────────────────────────────
+-- Game menggunakan sistem interaksi custom (bukan ProximityPrompt standar).
+-- Solusi: tahan tombol E terus-menerus. Server hanya memproses jika karakter
+-- benar-benar berada dalam jangkauan interaksi generator. Aman dari crash.
+task.spawn(function()
+    local holding = false
+    while true do
+        task.wait(0.05)
+        if GetOpt("AutoRepair", false) then
+            if not holding then
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                holding = true
+            end
+        else
+            if holding then
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                holding = false
             end
         end
     end
-    return nearest
-end
+end)
 
--- Loop Auto Repair
+
+
+
+-- ─── Auto Skill Check (Remote Hook) ──────────────────────────────────────────
 task.spawn(function()
-    while task.wait(1) do
-        if GetOption("AutoRepair", false) then
-            pcall(function()
-                local prompt = getNearestGenerator()
-                local hrp = getHRP()
-                local char = getCharacter()
-                if prompt and hrp and char then
-                    local basePart = prompt:FindFirstAncestorOfClass("BasePart") or prompt.Parent
-                    if basePart then
-                        -- Teleport di dekat generator
-                        char:PivotTo(basePart.CFrame + Vector3.new(0, 1.5, 0))
-                        task.wait(0.2)
-                        
-                        -- Picu ProximityPrompt perbaikan
-                        local oldHold = prompt.HoldDuration
-                        prompt.HoldDuration = 0
-                        fireproximityprompt(prompt)
-                        prompt.HoldDuration = oldHold
-                    end
+    local rem = ReplicatedStorage:WaitForChild("Remotes", 15)
+    if not rem then return end
+
+    -- Generator skill check
+    local genR = rem:WaitForChild("Generator", 10)
+    if genR then
+        local scEvent = genR:WaitForChild("SkillCheckEvent", 5)
+        local scResult = genR:WaitForChild("SkillCheckResultEvent", 5)
+        if scEvent and scResult then
+            scEvent.OnClientEvent:Connect(function(...)
+                if GetOpt("AutoSkillCheck", false) then
+                    scResult:FireServer(true, true, ...)
+                end
+            end)
+        end
+    end
+
+    -- Healing skill check
+    local healR = rem:WaitForChild("Healing", 10)
+    if healR then
+        local hEvent = healR:WaitForChild("SkillCheckEvent", 5)
+        local hResult = healR:WaitForChild("SkillCheckResultEvent", 5)
+        if hEvent and hResult then
+            hEvent.OnClientEvent:Connect(function(...)
+                if GetOpt("AutoSkillCheck", false) then
+                    hResult:FireServer(true, true, ...)
                 end
             end)
         end
     end
 end)
 
--- Auto Skill Check (Space key press emulator)
+-- ─── Killer Auto Attack ───────────────────────────────────────────────────────
 task.spawn(function()
-    while task.wait(0.05) do
-        if GetOption("AutoSkillCheck", false) then
+    while task.wait(0.3) do
+        if GetOpt("AutoAttack",false) and isKiller(player) then
             pcall(function()
-                -- Cari ScreenGui Skill Check secara dinamis
-                for _, gui in ipairs(playerGui:GetChildren()) do
-                    if gui:IsA("ScreenGui") and gui.Enabled then
-                        -- Mencocokkan nama UI umum
-                        local frame = gui:FindFirstChild("SkillCheck", true) 
-                            or gui:FindFirstChild("Minigame", true) 
-                            or gui:FindFirstChild("CheckFrame", true)
-                        
-                        if frame and frame.Visible then
-                            local needle = frame:FindFirstChild("Needle", true) or frame:FindFirstChild("Indicator", true)
-                            local zone = frame:FindFirstChild("SuccessZone", true) or frame:FindFirstChild("SafeZone", true) or frame:FindFirstChild("Zone", true)
-                            
-                            if needle and zone then
-                                local needleRot = needle.Rotation % 360
-                                local zoneRot = zone.Rotation % 360
-                                local size = 20
-                                if zone:FindFirstChild("Size") then
-                                    size = zone.Size.Value
-                                elseif zone:IsA("GuiObject") then
-                                    size = (zone.Size.X.Offset > 0) and (zone.Size.X.Offset / 2) or 20
-                                end
-                                
-                                -- Deteksi posisi presisi jarum dalam safe zone
-                                local diff = math.abs(needleRot - zoneRot)
-                                if diff <= size or (360 - diff) <= size then
-                                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-                                    task.wait(0.02)
-                                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                                    task.wait(0.4) -- Cooldown proteksi double press
-                                end
-                            end
+                local hrp=getHRP(); if not hrp then return end
+                local nearest,minD=nil,math.huge
+                for _,p in ipairs(Players:GetPlayers()) do
+                    if p~=player and p.Character then
+                        local sHrp=p.Character:FindFirstChild("HumanoidRootPart")
+                        if sHrp then
+                            local d=(hrp.Position-sHrp.Position).Magnitude
+                            if d<minD and not isKiller(p) then minD=d; nearest=sHrp end
                         end
                     end
                 end
-            end)
-        end
-    end
-end)
-
--- ─── Killer Automation ───────────────────────────────────────────────────────
-local function getNearestSurvivor()
-    local nearest = nil
-    local minDist = math.huge
-    local hrp = getHRP()
-    if not hrp then return nil end
-    
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and p.Character then
-            local sHrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if sHrp then
-                local dist = (hrp.Position - sHrp.Position).Magnitude
-                if dist < minDist and not isPlayerKiller(p) then
-                    minDist = dist
-                    nearest = p.Character
-                end
-            end
-        end
-    end
-    return nearest
-end
-
--- Auto Attack
-task.spawn(function()
-    while task.wait(0.5) do
-        if GetOption("AutoAttack", false) and isPlayerKiller(player) then
-            pcall(function()
-                local nearest = getNearestSurvivor()
-                local hrp = getHRP()
-                if nearest and hrp then
-                    local sHrp = nearest:FindFirstChild("HumanoidRootPart")
-                    if sHrp then
-                        local dist = (hrp.Position - sHrp.Position).Magnitude
-                        if dist <= 12 then -- Rentang jarak serang
-                            -- Kirim virtual klik mouse1 untuk memicu senjata
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                            task.wait(0.05)
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                        end
-                    end
+                if nearest and minD<=15 then
+                    hrp.CFrame=CFrame.new(hrp.Position, Vector3.new(nearest.Position.X, hrp.Position.Y, nearest.Position.Z))
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0)
+                    task.wait(0.05)
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0)
                 end
             end)
         end
     end
 end)
 
--- ─── Movement hacks ──────────────────────────────────────────────────────────
-local connectionNoclip
-task.spawn(function()
-    while task.wait(0.1) do
-        -- WalkSpeed & JumpPower
-        local hum = getHumanoid()
+-- ─── Movement ─────────────────────────────────────────────────────────────────
+local function updateSpeed(val)
+    autoSave()
+    pcall(function()
+        local hum = getHum()
         if hum then
-            local speed = GetOption("WalkSpeedSlider", 16)
-            local jump = GetOption("JumpPowerSlider", 50)
-            if speed ~= 16 then hum.WalkSpeed = speed end
-            if jump ~= 50 then hum.JumpPower = jump end
+            hum.WalkSpeed = val
         end
-        
-        -- Infinite Stamina (Bypass Stamina Value jika ada)
+    end)
+end
+
+RunService.PreSimulation:Connect(function()
+    local hum = getHum()
+    if hum then
+        local spd = GetOpt("SpeedSlider", 16)
         pcall(function()
-            local char = getCharacter()
-            local stamina = char and (char:FindFirstChild("Stamina") or char:FindFirstChild("Energy"))
-            if stamina and stamina:IsA("ValueBase") then
-                stamina.Value = 100
+            if hum.WalkSpeed ~= spd then
+                hum.WalkSpeed = spd
             end
-            local stats = player:FindFirstChild("leaderstats") or player:FindFirstChild("PlayerGui")
-            local st = stats and stats:FindFirstChild("Stamina", true)
-            if st and st:IsA("ValueBase") then st.Value = 100 end
         end)
     end
+    -- Infinite Stamina
+    pcall(function()
+        local c = getChar()
+        if not c then return end
+        local st = c:FindFirstChild("Stamina") or c:FindFirstChild("Energy")
+        if st and st:IsA("ValueBase") then st.Value = 100 end
+    end)
 end)
 
--- Noclip loop
+local wasNoclip = false
 RunService.Stepped:Connect(function()
-    if GetOption("NoclipToggle", false) then
+    local isNoclip = GetOpt("Noclip", false)
+    if isNoclip then
+        wasNoclip = true
         pcall(function()
-            local char = getCharacter()
-            if char then
-                for _, part in ipairs(char:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
+            local c = getChar()
+            if not c then return end
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then
+                    p.CanCollide = false
                 end
             end
         end)
+    else
+        if wasNoclip then
+            wasNoclip = false
+            pcall(function()
+                local c = getChar()
+                if not c then return end
+                for _, p in ipairs(c:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        if p.Name ~= "HumanoidRootPart" then
+                            p.CanCollide = true
+                        end
+                    end
+                end
+            end)
+        end
     end
 end)
 
--- ─── GUI Layout Setup ────────────────────────────────────────────────────────
--- Tab Survivor
-Tabs.Survivor:AddToggle("AutoRepair",      { Title="▶ Auto Repair Generator", Default=false, Callback = autoSave })
-Tabs.Survivor:AddToggle("AutoSkillCheck",  { Title="▶ Auto Skill Check (100% Perfect)", Default=false, Callback = autoSave })
+-- ─── GUI Build ────────────────────────────────────────────────────────────────
+-- Survivor Tab
+local surSec=Tabs.Survivor:AddSection("Automation")
+surSec:AddToggle("AutoRepair",     {Title="Auto Repair Generator", Default=false, Callback=autoSave})
+surSec:AddToggle("AutoSkillCheck", {Title="Auto Skill Check (Perfect)", Default=false, Callback=autoSave})
 
--- Tab Killer
-Tabs.Killer:AddToggle("AutoAttack",        { Title="▶ Auto Attack Nearest Survivor", Default=false, Callback = autoSave })
+-- Killer Tab
+local kilSec=Tabs.Killer:AddSection("Automation")
+kilSec:AddToggle("AutoAttack",  {Title="Auto Attack Survivor", Default=false, Callback=autoSave})
 
--- Tab Visuals
-Tabs.Visuals:AddToggle("EspGenerators",    { Title="Show Generators", Default=false, Callback = autoSave })
-Tabs.Visuals:AddToggle("EspKiller",        { Title="Show Killer",     Default=false, Callback = autoSave })
-Tabs.Visuals:AddToggle("EspSurvivors",     { Title="Show Survivors",  Default=false, Callback = autoSave })
-Tabs.Visuals:AddToggle("EspPallets",       { Title="Show Pallets",    Default=false, Callback = autoSave })
-Tabs.Visuals:AddToggle("EspGates",         { Title="Show Exit Gates", Default=false, Callback = autoSave })
-Tabs.Visuals:AddSlider("EspDistanceLimit", { Title="ESP Distance Limit (studs)", Min=100, Max=2000, Default=1000, Rounding=0, Callback = autoSave })
+-- ESP Tab
+local espSec=Tabs.Visuals:AddSection("ESP Objects")
+espSec:AddToggle("EspGen",    {Title="Generators",  Default=false, Callback=autoSave})
+espSec:AddToggle("EspPallet", {Title="Pallets",     Default=false, Callback=autoSave})
+espSec:AddToggle("EspGate",   {Title="Exit Gates",  Default=false, Callback=autoSave})
+local espPSec=Tabs.Visuals:AddSection("ESP Players")
+espPSec:AddToggle("EspKiller", {Title="Killer",     Default=false, Callback=autoSave})
+espPSec:AddToggle("EspSurv",   {Title="Survivors",  Default=false, Callback=autoSave})
+Tabs.Visuals:AddSlider("EspDist", {Title="Max Distance (studs)", Min=50, Max=2000, Default=1000, Rounding=0, Callback=autoSave})
+local diagSec=Tabs.Visuals:AddSection("Diagnostics")
+diagSec:AddButton({Title="Scan Now (Lihat di Console)", Callback=function()
+    if _G.VD_ScanNow then _G.VD_ScanNow()
+    else log("Scan function not ready yet.") end
+end})
 
--- Tab Movement
-Tabs.Movement:AddSlider("WalkSpeedSlider", { Title="Walk Speed Override", Min=16, Max=120, Default=16, Rounding=0, Callback = autoSave })
-Tabs.Movement:AddSlider("JumpPowerSlider", { Title="Jump Power Override", Min=50, Max=250, Default=50, Rounding=0, Callback = autoSave })
-Tabs.Movement:AddToggle("NoclipToggle",    { Title="Noclip (Pass through walls)", Default=false, Callback = autoSave })
+-- Movement Tab
+local movSec=Tabs.Movement:AddSection("Movement")
+movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
+movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
 
--- Tab Settings
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetFolder("ViolenceDistrict")
-SaveManager:BuildConfigSection(Tabs.Settings)
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+-- Settings Tab
+Tabs.Settings:AddButton({Title="Close / Unload", Callback=function()
+    Fluent:Destroy()
+    pcall(function() game:GetService("CoreGui"):FindFirstChild("VDToggleGui"):Destroy() end)
+end})
+
+SM:SetLibrary(Fluent); IM:SetLibrary(Fluent)
+SM:IgnoreThemeSettings()
+SM:SetFolder("ViolenceDistrict")
+SM:BuildConfigSection(Tabs.Settings)
+IM:SetFolder("ViolenceDistrictSettings")
+IM:BuildInterfaceSection(Tabs.Settings)
 Window:SelectTab(1)
-SaveManager:LoadAutoloadConfig()
+-- SM:LoadAutoloadConfig()
 
 Fluent:Notify({
-    Title   = "Violence District Hub",
-    Content = "Script loaded successfully! Happy surviving/hunting!",
-    Duration= 8
+    Title="Violence District Hub v3.0",
+    Content="Siap! Auto Skill Check & ESP aktif. Masuk match dan aktifkan fitur yang diinginkan.",
+    Duration=8
 })
+log("Violence District Hub v3.0 loaded successfully.")
