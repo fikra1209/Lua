@@ -157,7 +157,7 @@ end
 -- ─── Interface & Save Manager (Inlined) ──────────────────────────────────────
 local InterfaceManager = {} do
     InterfaceManager.Folder   = "ViolenceDistrictSettings"
-    InterfaceManager.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="LeftControl" }
+    InterfaceManager.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="Insert" }
     function InterfaceManager:SetFolder(f)    self.Folder=f; self:BuildFolderTree() end
     function InterfaceManager:SetLibrary(lib) self.Library=lib end
     function InterfaceManager:BuildFolderTree()
@@ -265,7 +265,7 @@ local Window = Fluent:CreateWindow({
     Title="Violence District Bot", SubTitle="LuxvS Hub",
     TabWidth=160, Size=UDim2.fromOffset(580,480),
     Acrylic=true, Theme="Dark",
-    MinimizeKey=Enum.KeyCode.LeftControl
+    MinimizeKey=Enum.KeyCode.Insert
 })
 
 -- ─── Floating Toggle Button ──────────────────────────────────────────────────
