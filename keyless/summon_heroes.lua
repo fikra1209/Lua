@@ -1,0 +1,874 @@
+--[[
+    Summon Heroes Automation Bot — Premium Edition
+    Developed by Antigravity AI
+
+    Features:
+    - Self-Healing Library Loader (multi CDN mirror fallback)
+    - Draggable Floating "SH" Toggle Button
+    - Auto Wave Ready        (toggle mandiri)
+    - Auto Collect Chests    (toggle mandiri)
+    - Auto Putar Ulang Tahap (toggle mandiri)
+    - Auto Tahap Selanjutnya (toggle mandiri)
+    - Auto Kembali ke Lobi   (toggle mandiri)
+    - Auto Summon / Auto Sell / Auto Fuse
+    - Anti-AFK + Auto Rejoin
+    - Lobby Persistence: CharacterAdded + TeleportService + Watchdog rebind
+    - SaveManager + InterfaceManager Fluent integration
+]]
+
+-- ─── Initialization ──────────────────────────────────────────────────────────
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService       = game:GetService("HttpService")
+local TeleportService   = game:GetService("TeleportService")
+local VirtualUser       = game:GetService("VirtualUser")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local function debugPrint(msg)
+    local text = "[Summon Heroes Bot] " .. tostring(msg)
+    print(text); warn(text)
+    pcall(function() if rconsoleprint then rconsoleprint(text.."\n") end end)
+end
+
+debugPrint("Initializing script...")
+
+pcall(function()
+    task.spawn(function()
+        task.wait(5) -- Tunggu map dimuat
+        local result = "[Summon Heroes Bot Diagnostics: Chests]\n"
+        local found = 0
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                found = found + 1
+                result = result .. "Prompt found: " .. desc:GetFullName() .. "\n"
+            end
+            if string.find(desc.Name:lower(), "chest") then
+                found = found + 1
+                result = result .. "Chest object found: " .. desc:GetFullName() .. " (Class: " .. desc.ClassName .. ")\n"
+            end
+        end
+        result = result .. "Total items found: " .. found .. "\n"
+        writefile("SH_Chest_Diagnostics.txt", result)
+    end)
+end)
+
+-- ─── Self-Healing HttpGet Library Loader ─────────────────────────────────────
+local function httpGet(url)
+    local requestFunc = (syn and syn.request) or (http and http.request) or request or http_request
+    if requestFunc then
+        local ok, res = pcall(function()
+            return requestFunc({ Url=url, Method="GET", Timeout=5, timeout=5 })
+        end)
+        if ok and res then
+            if type(res)=="table" and res.StatusCode==200 and res.Body then return res.Body end
+            if type(res)=="string" then return res end
+        end
+    end
+    local ok2, r2 = pcall(game.HttpGet, game, url)
+    return ok2 and r2 or nil
+end
+
+local function safeHttpGet(url)
+    local ok, res = pcall(httpGet, url)
+    if ok and res and res~="" and not res:find("404") and not res:find("<html") and not res:find("<!DOCTYPE") then
+        return res
+    end
+    return nil
+end
+
+local function loadLibrary(fileName, urls)
+    local localOk, localContent = pcall(function()
+        if readfile then return readfile(fileName) end
+    end)
+    if localOk and localContent and localContent~="" then
+        local fn, err = loadstring(localContent)
+        if fn then
+            debugPrint("Loaded "..fileName.." from local cache.")
+            return localContent, fn
+        else
+            debugPrint("Cache corrupted: "..tostring(err)..". Re-downloading...")
+            pcall(function() if delfile then delfile(fileName) elseif writefile then writefile(fileName,"") end end)
+        end
+    end
+    for _, url in ipairs(urls) do
+        debugPrint("Downloading "..fileName.." from: "..url)
+        local content = safeHttpGet(url)
+        if content and content~="" then
+            local fn, err = loadstring(content)
+            if fn then
+                pcall(function() if writefile then writefile(fileName,content); debugPrint("Cached "..fileName) end end)
+                return content, fn
+            else
+                debugPrint("Invalid Lua from "..url..": "..tostring(err))
+            end
+        end
+    end
+    return nil, nil
+end
+
+local Fluent_URLs = {
+    "https://mirror.ghproxy.com/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
+    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
+    "https://ghproxy.net/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
+    "https://ghfast.top/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
+}
+
+local fluentRaw, fluentCompiled = loadLibrary("SH_Fluent.lua", Fluent_URLs)
+if not fluentRaw or not fluentCompiled then
+    debugPrint("CRITICAL: Failed to load Fluent!"); return
+end
+
+local loadOk, Fluent = pcall(fluentCompiled)
+if not loadOk or not Fluent then
+    debugPrint("CRITICAL: Fluent exec failed: "..tostring(Fluent)); return
+end
+
+-- ─── InterfaceManager (Inlined) ──────────────────────────────────────────────
+local InterfaceManager = {} do
+    InterfaceManager.Folder   = "FluentSettings"
+    InterfaceManager.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="LeftControl" }
+    function InterfaceManager:SetFolder(f)    self.Folder=f; self:BuildFolderTree() end
+    function InterfaceManager:SetLibrary(lib) self.Library=lib end
+    function InterfaceManager:BuildFolderTree()
+        for _,p in ipairs({self.Folder, self.Folder.."/settings"}) do
+            if not isfolder(p) then makefolder(p) end
+        end
+    end
+    function InterfaceManager:SaveSettings()
+        writefile(self.Folder.."/options.json", HttpService:JSONEncode(self.Settings))
+    end
+    function InterfaceManager:LoadSettings()
+        local p = self.Folder.."/options.json"
+        if isfile(p) then
+            local ok,d = pcall(HttpService.JSONDecode, HttpService, readfile(p))
+            if ok then for k,v in next,d do self.Settings[k]=v end end
+        end
+    end
+    function InterfaceManager:BuildInterfaceSection(tab)
+        assert(self.Library, "Must set InterfaceManager.Library")
+        local L = self.Library; local S = self.Settings
+        self:LoadSettings()
+        local sec = tab:AddSection("Interface")
+        local themeDD = sec:AddDropdown("InterfaceTheme",{
+            Title="Theme", Values=L.Themes, Default=S.Theme,
+            Callback=function(v) L:SetTheme(v); S.Theme=v; self:SaveSettings() end
+        }); themeDD:SetValue(S.Theme)
+        if L.UseAcrylic then
+            sec:AddToggle("AcrylicToggle",{Title="Acrylic",Default=S.Acrylic,
+                Callback=function(v) L:ToggleAcrylic(v); S.Acrylic=v; self:SaveSettings() end})
+        end
+        sec:AddToggle("TransparentToggle",{Title="Transparency",Default=S.Transparency,
+            Callback=function(v) L:ToggleAcrylic(v); L:ToggleTransparency(v); S.Transparency=v; self:SaveSettings() end})
+        local kb = sec:AddKeybind("MenuKeybind",{Title="Minimize Bind",Default=S.MenuKeybind})
+        kb:OnChanged(function() S.MenuKeybind=kb.Value; self:SaveSettings() end)
+        L.MinimizeKeybind = kb
+    end
+end
+
+-- ─── SaveManager (Inlined) ───────────────────────────────────────────────────
+local SaveManager = {} do
+    SaveManager.Folder = "FluentSettings"
+    SaveManager.Ignore = {}
+    SaveManager.Parser = {
+        Toggle   = {Save=function(_,obj) return {type="Toggle",  value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Slider   = {Save=function(_,obj) return {type="Slider",  value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Dropdown = {Save=function(_,obj) return {type="Dropdown",value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Keybind  = {Save=function(_,obj) return {type="Keybind", value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+        Input    = {Save=function(_,obj) return {type="Input",   value=obj.Value} end, Load=function(_,d,o) if d.value~=nil then o:SetValue(d.value) end end},
+    }
+    function SaveManager:SetLibrary(lib)    self.Library=lib end
+    function SaveManager:IgnoreThemeSettings() self.IgnoreTheme=true end
+    function SaveManager:SetFolder(f)
+        self.Folder=f
+        if not isfolder(f) then makefolder(f) end
+        if not isfolder(f.."/configs") then makefolder(f.."/configs") end
+    end
+    function SaveManager:Save(name)
+        local L=self.Library; assert(L,"Must set Library")
+        local data={}
+        for idx,opt in next,L.Options do
+            if not self.Ignore[idx] and self.Parser[opt.Type] then
+                local ok,saved=pcall(self.Parser[opt.Type].Save,self,opt)
+                if ok then data[idx]=saved end
+            end
+        end
+        writefile(self.Folder.."/configs/"..name..".json", HttpService:JSONEncode(data))
+    end
+    function SaveManager:Load(name)
+        local L=self.Library; assert(L,"Must set Library")
+        local p=self.Folder.."/configs/"..name..".json"
+        if not isfile(p) then return end
+        local ok,data=pcall(HttpService.JSONDecode,HttpService,readfile(p))
+        if not ok then return end
+        for idx,entry in next,data do
+            local opt=L.Options[idx]
+            if opt and self.Parser[entry.type] then pcall(self.Parser[entry.type].Load,self,entry,opt) end
+        end
+    end
+    function SaveManager:LoadAutoloadConfig()
+        local p=self.Folder.."/configs/autoload.txt"
+        if isfile(p) then
+            local name=readfile(p):gsub("[\r\n]","")
+            if name~="" then self:Load(name) end
+        end
+    end
+    function SaveManager:BuildConfigSection(tab)
+        local sec=tab:AddSection("Configuration")
+        local ci=sec:AddInput("SaveConfigName",{Title="Config Name",Default="default"})
+        sec:AddButton({Title="Save Config",Callback=function()
+            if ci.Value~="" then self:Save(ci.Value); Fluent:Notify({Title="Saved!",Content="'"..ci.Value.."' saved.",Duration=3}) end
+        end})
+        sec:AddButton({Title="Load Config",Callback=function()
+            if ci.Value~="" then self:Load(ci.Value); Fluent:Notify({Title="Loaded!",Content="'"..ci.Value.."' loaded.",Duration=3}) end
+        end})
+        sec:AddButton({Title="Set Autoload",Callback=function()
+            if ci.Value~="" then
+                writefile(self.Folder.."/configs/autoload.txt",ci.Value)
+                Fluent:Notify({Title="Autoload Set!",Content="'"..ci.Value.."' akan auto-load saat execute.",Duration=3})
+            end
+        end})
+    end
+end
+
+-- ─── Create Window ───────────────────────────────────────────────────────────
+local Window = Fluent:CreateWindow({
+    Title="Summon Heroes", SubTitle="VICO",
+    TabWidth=160, Size=UDim2.fromOffset(580,480),
+    Acrylic=true, Theme="Dark",
+    MinimizeKey=Enum.KeyCode.LeftControl
+})
+
+-- ─── Floating SH Toggle Button ───────────────────────────────────────────────
+pcall(function()
+    local cg = game:GetService("CoreGui")
+    local old = cg:FindFirstChild("SummonHeroesToggleGui")
+    if old then old:Destroy() end
+    local gui = Instance.new("ScreenGui"); gui.Name="SummonHeroesToggleGui"
+    gui.ResetOnSpawn=false; gui.Parent=cg
+    local btn = Instance.new("TextButton"); btn.Parent=gui
+    btn.Size=UDim2.new(0,50,0,50); btn.Position=UDim2.new(0.02,0,0.2,0)
+    btn.BackgroundColor3=Color3.fromRGB(20,20,25); btn.BorderSizePixel=0
+    btn.Text="SH"; btn.TextColor3=Color3.fromRGB(0,180,255)
+    btn.Font=Enum.Font.GothamBold; btn.TextSize=16
+    Instance.new("UICorner",btn).CornerRadius=UDim.new(0.5,0)
+    local s=Instance.new("UIStroke",btn); s.Color=Color3.fromRGB(0,180,255); s.Thickness=2
+    btn.MouseButton1Click:Connect(function() pcall(function() Window:Minimize() end) end)
+    local UIS=game:GetService("UserInputService")
+    local dragging,dragInput,dragStart,startPos
+    btn.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=true; dragStart=i.Position; startPos=btn.Position
+            i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then dragging=false end end)
+        end
+    end)
+    btn.InputChanged:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then dragInput=i end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if i==dragInput and dragging then
+            local d=i.Position-dragStart
+            btn.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+        end
+    end)
+end)
+
+-- ─── Tabs ────────────────────────────────────────────────────────────────────
+local Tabs = {
+    Main      = Window:AddTab({ Title="Automation",    Icon="play" }),
+    Summon    = Window:AddTab({ Title="Summon & Shop", Icon="shopping-cart" }),
+    Inventory = Window:AddTab({ Title="Inventory",     Icon="archive" }),
+    Settings  = Window:AddTab({ Title="Settings",      Icon="settings" }),
+}
+
+local function GetOption(key, fallback)
+    local opt = Fluent.Options[key]
+    if opt then return opt.Value end
+    return fallback
+end
+
+-- ─── Remotes ─────────────────────────────────────────────────────────────────
+local ReadyRemote, VoteRemote, SummonRemote, FuseRemote, SellRemote
+
+local function isValid(r)
+    if not r then return false end
+    return pcall(function() return r.Name end)
+end
+
+local function bindRemotes()
+    local ok, err = pcall(function()
+        local R = ReplicatedStorage:WaitForChild("Remotes", 15)
+        if not R then debugPrint("[Remotes] CRITICAL: Remotes folder tidak ada!"); return end
+        ReadyRemote  = R:FindFirstChild("Waves_Ready")  or R:WaitForChild("Waves_Ready",  5)
+        VoteRemote   = R:FindFirstChild("Vote")         or R:WaitForChild("Vote",         5)
+        SummonRemote = R:FindFirstChild("BuyPack")      or R:WaitForChild("BuyPack",      5)
+        FuseRemote   = R:FindFirstChild("PurchaseFuse") or R:WaitForChild("PurchaseFuse", 5)
+        SellRemote   = R:FindFirstChild("SellItems")    or R:WaitForChild("SellItems",    5)
+        debugPrint("[Remotes] Waves_Ready:"  ..(isValid(ReadyRemote)  and "OK" or "MISS"))
+        debugPrint("[Remotes] Vote:"         ..(isValid(VoteRemote)   and "OK" or "MISS"))
+        debugPrint("[Remotes] BuyPack:"      ..(isValid(SummonRemote) and "OK" or "MISS"))
+        debugPrint("[Remotes] PurchaseFuse:" ..(isValid(FuseRemote)   and "OK" or "MISS"))
+        debugPrint("[Remotes] SellItems:"    ..(isValid(SellRemote)   and "OK" or "MISS"))
+    end)
+    if not ok then debugPrint("[Remotes] bindRemotes error: "..tostring(err)) end
+end
+
+bindRemotes()
+
+local function isInBattle()
+    return game.PlaceId ~= 117381420723145 and workspace:FindFirstChild("Map") ~= nil
+end
+
+-- ─── Lobby Persistence ───────────────────────────────────────────────────────
+player.CharacterAdded:Connect(function()
+    task.wait(2)
+    bindRemotes()
+    debugPrint("[Persistence] CharacterAdded: remotes re-bound")
+end)
+
+pcall(function()
+    TeleportService.LocalPlayerArrivedFromTeleport:Connect(function()
+        task.wait(3)
+        bindRemotes()
+        debugPrint("[Persistence] ArrivedFromTeleport: remotes re-bound")
+    end)
+end)
+
+task.spawn(function()
+    while task.wait(5) do
+        if not isValid(ReadyRemote) or not isValid(VoteRemote) or not isValid(SummonRemote) then
+            debugPrint("[Watchdog] Remote invalid, rebinding...")
+            bindRemotes()
+        end
+    end
+end)
+
+-- ─── Utility Functions ───────────────────────────────────────────────────────
+local function GetUnitsFolder()
+    local profile   = playerGui:FindFirstChild("Profile")
+    local inventory = profile and profile:FindFirstChild("Inventory")
+    return inventory and inventory:FindFirstChild("Units")
+end
+
+local rarityTable = {
+    Rare      = {"AcademyWitch","Archer","Bandit","BearTamer","Deckhand","FireMage","IceMage","Ninja","Swordsman","StreetRat"},
+    Epic      = {"Captain","CyberDJ","DemonHunter","Diver","Dragoon","DualWielder","Mermaid","Necromancer","Outlaw","SlimeSummoner","Spellblade","Vampire","WindSamurai","Specter","Thief","Construct"},
+    Legendary = {"AbyssLord","LaserCyborg","DemonKnight","Jester","KitsuneMage","Sniper","Framerate","Technomancer","TankCommander","Ranger","Sage"},
+    Mythic    = {"Divine","Reaper","Seraph","Emperor","B-4RB.E.T.","Matriarch","Rend"},
+}
+
+local function GetUnitRarity(unitName)
+    local clean = unitName:gsub("%s",""):gsub("[^%w%-]","")
+    for rarity, units in pairs(rarityTable) do
+        for _, name in ipairs(units) do
+            if name:lower()==clean:lower() then return rarity end
+        end
+    end
+    return "Common"
+end
+
+-- Filter untuk mengenali tombol interaksi peti (dengan pencarian induk secara rekursif)
+local function isChestPrompt(prompt)
+    local objText = tostring(prompt.ObjectText or ""):lower()
+    local actText = tostring(prompt.ActionText or ""):lower()
+    local name = tostring(prompt.Name):lower()
+    
+    if string.find(objText, "peti") or string.find(objText, "chest")
+        or string.find(actText, "peti") or string.find(actText, "chest")
+        or string.find(actText, "buka") or string.find(actText, "open")
+        or string.find(name, "chest") or string.find(name, "peti") then
+        return true
+    end
+    
+    -- Cek jika ada induk/ancestor yang mengandung nama "chest" atau "peti" (misal BonusChests)
+    local current = prompt.Parent
+    while current and current ~= workspace do
+        local cName = tostring(current.Name):lower()
+        if string.find(cName, "chest") or string.find(cName, "peti") then
+            return true
+        end
+        current = current.Parent
+    end
+    
+    return false
+end
+
+-- ─── Auto Collect Chests ─────────────────────────────────────────────────────
+local chestCooldowns = {}
+
+local function collectChests()
+    local now = os.time()
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
+            local lastTry = chestCooldowns[desc] or 0
+            if now - lastTry >= 3 then
+                chestCooldowns[desc] = now
+                pcall(function()
+                    local character = player.Character
+                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                    local basePart = nil
+                    if desc.Parent and desc.Parent:IsA("BasePart") then
+                        basePart = desc.Parent
+                    elseif desc.Parent and desc.Parent:IsA("Attachment") and desc.Parent.Parent and desc.Parent.Parent:IsA("BasePart") then
+                        basePart = desc.Parent.Parent
+                    else
+                        basePart = desc:FindFirstAncestorOfClass("BasePart")
+                    end
+                    
+                    if hrp and basePart then
+                        -- Teleport ke peti menggunakan PivotTo (lebih andal untuk model karakter)
+                        character:PivotTo(basePart.CFrame + Vector3.new(0, 1.5, 0))
+                        task.wait(0.35) -- Tunggu posisi tereplikasi di server (sangat krusial!)
+                        
+                        -- Bypass HoldDuration agar langsung terbuka secara instan
+                        local oldHold = desc.HoldDuration
+                        desc.HoldDuration = 0
+                        fireproximityprompt(desc)
+                        task.wait(0.25) -- Tunggu server memproses klaim peti
+                        desc.HoldDuration = oldHold
+                    else
+                        local oldHold = desc.HoldDuration
+                        desc.HoldDuration = 0
+                        fireproximityprompt(desc)
+                        task.wait(0.15)
+                        desc.HoldDuration = oldHold
+                    end
+                    debugPrint("Collected chest: " .. desc:GetFullName())
+                end)
+            end
+        end
+    end
+end
+
+-- ─── Auto Sell ───────────────────────────────────────────────────────────────
+local function sellUnits()
+    local uf = GetUnitsFolder(); if not uf then return end
+    local toSell = {}
+    for _, unit in ipairs(uf:GetChildren()) do
+        local n = (unit:FindFirstChild("UnitName") or unit).Value or unit.Name
+        local r = GetUnitRarity(n)
+        if (r=="Rare" and GetOption("SellRare",false)) or (r=="Epic" and GetOption("SellEpic",false))
+        or (r=="Legendary" and GetOption("SellLegendary",false)) then
+            table.insert(toSell, unit.Name)
+        end
+    end
+    if #toSell>0 and SellRemote then
+        pcall(function() SellRemote:FireServer(toSell); debugPrint("Auto Sold "..#toSell.." units") end)
+    end
+end
+
+-- ─── Auto Fuse ───────────────────────────────────────────────────────────────
+local function fuseUnits()
+    local uf = GetUnitsFolder(); if not uf then return end
+    local groups = {}
+    for _, unit in ipairs(uf:GetChildren()) do
+        local n = (unit:FindFirstChild("UnitName") or unit).Value or unit.Name
+        local s = (unit:FindFirstChild("Stars") and unit:FindFirstChild("Stars").Value) or 1
+        local r = GetUnitRarity(n)
+        if (r=="Rare" or r=="Epic") and s<5 then
+            local k = n.."_"..s
+            if not groups[k] then groups[k]={} end
+            table.insert(groups[k], unit.Name)
+        end
+    end
+    for _, list in pairs(groups) do
+        if #list>=2 and FuseRemote then
+            pcall(function()
+                local food={}
+                for i=2,math.min(#list,5) do table.insert(food,list[i]) end
+                FuseRemote:FireServer(list[1], food)
+                debugPrint("Auto Fused "..#food.." units into "..list[1])
+            end)
+            task.wait(0.5)
+        end
+    end
+end
+
+-- ─── Vote System ─────────────────────────────────────────────────────────────
+-- Teks tombol persis dari screenshot:
+--   Retry = "Putar Ulang Tahap"
+--   Next  = "Mainkan Peta Berikutnya" / "Tahap Selanjutnya"
+--   Lobby = "Kembali ke Lobi"
+local VOTE_TEXTS = {
+    Retry = {"putar ulang tahap", "replay stage"},
+    Next  = {"mainkan peta berikutnya", "tahap selanjutnya", "next stage", "next map"},
+    Lobby = {"kembali ke lobi", "kembali ke lobby", "return to lobby"},
+}
+
+local function cleanText(txt)
+    if not txt then return "" end
+    local s = tostring(txt)
+    s = s:gsub("<[^<>]+>", "") -- Hilangkan tag HTML/XML jika rich text aktif
+    s = s:lower()
+    s = s:gsub("%s+", " ") -- Satukan semua spasi/newline/tab menjadi spasi tunggal
+    s = s:match("^%s*(.-)%s*$") or s -- Trim
+    return s
+end
+
+-- Periksa apakah objek GUI benar-benar aktif dan terlihat di layar pemain
+local function isGuiVisible(obj)
+    if not obj then return false end
+    
+    -- Cek jika ScreenGui induk dinonaktifkan
+    local screenGui = obj:FindFirstAncestorOfClass("ScreenGui")
+    if screenGui and not screenGui.Enabled then
+        return false
+    end
+    
+    -- Cek jika objek itu sendiri atau salah satu induk GuiObject-nya tersembunyi
+    local current = obj
+    while current and current:IsA("GuiObject") do
+        if not current.Visible then
+            return false
+        end
+        current = current.Parent
+    end
+    
+    return true
+end
+
+-- Cari TextButton atau TextLabel di semua GUI berdasarkan teks (hanya yang aktif/terlihat)
+local function findButtonByTexts(targetTexts)
+    local containers = {playerGui}
+    pcall(function() table.insert(containers, game:GetService("CoreGui")) end)
+    for _, root in ipairs(containers) do
+        for _, desc in ipairs(root:GetDescendants()) do
+            if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
+                local txt = cleanText(desc.Text)
+                for _, t in ipairs(targetTexts) do
+                    if txt == t or string.find(txt, t, 1, true) then
+                        -- Jika TextButton, langsung kembalikan
+                        if desc:IsA("TextButton") then
+                            return desc
+                        end
+                        -- Jika TextLabel, cari parent/ancestor yang bertindak sebagai Button
+                        local parent = desc.Parent
+                        for i = 1, 3 do
+                            if parent and (parent:IsA("GuiButton") or parent:IsA("TextButton") or parent:IsA("ImageButton")) and isGuiVisible(parent) then
+                                return parent
+                            end
+                            if parent then parent = parent.Parent else break end
+                        end
+                        -- Fallback ke parent terdekat jika tidak ditemukan GuiButton
+                        return desc.Parent or desc
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Klik tombol: coba semua metode secara berurutan
+local function clickButton(btn)
+    -- Metode 1: getconnections (Xeno mendukung)
+    local clicked = false
+    pcall(function()
+        if getconnections then
+            for _, evName in ipairs({"Activated","MouseButton1Click","MouseButton1Down"}) do
+                local ok, conns = pcall(getconnections, btn[evName])
+                if ok and conns and #conns>0 then
+                    for _, conn in ipairs(conns) do
+                        pcall(function() conn:Fire() end)
+                        clicked = true
+                    end
+                end
+            end
+        end
+    end)
+    if clicked then return true end
+
+    -- Metode 2: Fire events langsung (universal)
+    pcall(function()
+        btn.MouseButton1Down:Fire(0,0); task.wait(0.05)
+        btn.MouseButton1Up:Fire(0,0)
+        btn.MouseButton1Click:Fire(0,0)
+        if btn:IsA("GuiButton") then
+            btn.Activated:Fire()
+        end
+        clicked = true
+    end)
+    if clicked then return true end
+
+    -- Metode 3: Mouse simulation fisik (Xeno)
+    pcall(function()
+        local p = btn.AbsolutePosition + btn.AbsoluteSize/2
+        if mousemoveabs then mousemoveabs(p.X, p.Y); task.wait(0.05) end
+        if mouse1click then mouse1click(); clicked=true
+        elseif mouse1press then mouse1press(); task.wait(0.05); mouse1release(); clicked=true end
+    end)
+    return clicked
+end
+
+-- State vote (reset saat layar hilang)
+local votedThisRound = false
+local lastClickTime  = 0
+local voteAttempts   = 0
+local voteScreenVisibleSince = 0
+
+local FINISH_TEXTS = {"kemenangan!", "kekalahan!", "victory!", "defeat!"}
+
+local function isMatchFinished()
+    local containers = {playerGui}
+    pcall(function() table.insert(containers, game:GetService("CoreGui")) end)
+    for _, root in ipairs(containers) do
+        for _, desc in ipairs(root:GetDescendants()) do
+            if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
+                local txt = cleanText(desc.Text)
+                for _, t in ipairs(FINISH_TEXTS) do
+                    if txt == t or string.find(txt, t, 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function isVoteScreenVisible()
+    return isMatchFinished() and (
+        findButtonByTexts(VOTE_TEXTS.Retry) ~= nil
+        or findButtonByTexts(VOTE_TEXTS.Next)  ~= nil
+    )
+end
+
+-- Dipanggil setiap detik dari main loop — retry sampai berhasil
+local function tryAutoVote()
+    -- Jika sudah pernah klik, tunggu minimal 5 detik sebelum coba lagi (cooldown jika belum ter-teleport)
+    if votedThisRound and (os.time() - lastClickTime < 5) then return end
+
+    -- Tentukan pilihan
+    local choice = nil
+    if     GetOption("AutoRetry",     false) then choice = "Retry"
+    elseif GetOption("AutoNextStage", false) then choice = "Next"
+    elseif GetOption("AutoLobby",     false) then choice = "Lobby"
+    end
+    if not choice then return end
+
+    -- Cari dan klik tombol GUI
+    local targetTexts = VOTE_TEXTS[choice]
+    local btn = findButtonByTexts(targetTexts)
+    if btn then
+        -- Selalu coba fire VoteRemote ke server (format berbagai kemungkinan) saat tombol sudah muncul
+        pcall(function()
+            if VoteRemote then
+                pcall(function() VoteRemote:FireServer(choice) end)          -- "Retry"
+                pcall(function() VoteRemote:FireServer(choice:lower()) end)  -- "retry"
+            end
+        end)
+
+        local displayName = btn:IsA("TextLabel") and btn.Text or (btn:FindFirstChildOfClass("TextLabel") and btn:FindFirstChildOfClass("TextLabel").Text or btn.Name)
+        debugPrint("[Vote] Tombol '"..tostring(displayName).."' ditemukan, mengklik...")
+        local ok = clickButton(btn)
+        if ok then
+            votedThisRound = true
+            lastClickTime  = os.time()
+            voteAttempts   = 0
+            debugPrint("[Vote] Berhasil memicu klik: "..choice)
+        else
+            voteAttempts = voteAttempts + 1
+            debugPrint("[Vote] Klik gagal (attempt "..voteAttempts.."), retry 1 detik lagi")
+        end
+    else
+        voteAttempts = voteAttempts + 1
+        debugPrint("[Vote] Menunggu tombol '"..choice.."' muncul (attempt "..voteAttempts..")")
+    end
+end
+
+-- ─── Anti-AFK ────────────────────────────────────────────────────────────────
+player.Idled:Connect(function()
+    pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new(0,0)) end)
+end)
+
+local function checkDisconnection()
+    pcall(function()
+        local ep = playerGui:FindFirstChild("ErrorPrompt",true)
+               or game:GetService("CoreGui"):FindFirstChild("ErrorPrompt",true)
+        if ep and ep.Visible then TeleportService:Teleport(game.PlaceId, player) end
+    end)
+end
+
+-- ─── GUI: Toggle & Options ────────────────────────────────────────────────────
+local function autoSave()
+    local name = GetOption("SaveConfigName", "default")
+    if name == "" then name = "default" end
+    pcall(function()
+        SaveManager:Save(name)
+    end)
+end
+
+-- PENTING: Setiap toggle MANDIRI — tidak perlu aktifkan Master Switch dulu!
+-- Bot Active hanya digunakan sebagai kill-switch darurat.
+Tabs.Main:AddToggle("BotActive",       { Title="⚡ Bot Active (Master Kill-Switch)", Default=false, Callback = autoSave })
+Tabs.Main:AddToggle("AutoReady",       { Title="▶ Auto Wave Ready",                Default=false, Callback = autoSave })
+Tabs.Main:AddToggle("AutoCollectChests",{ Title="▶ Auto Collect Bonus Chests",     Default=false, Callback = autoSave })
+
+-- Vote toggles — pilih satu, otomatis matikan yang lain
+Tabs.Main:AddToggle("AutoRetry", {
+    Title="▶ Auto Putar Ulang Tahap", Default=false,
+    Callback=function(v)
+        if v then
+            pcall(function()
+                if Fluent.Options["AutoNextStage"] then Fluent.Options["AutoNextStage"]:SetValue(false) end
+                if Fluent.Options["AutoLobby"]     then Fluent.Options["AutoLobby"]:SetValue(false) end
+            end)
+        end
+        autoSave()
+    end
+})
+Tabs.Main:AddToggle("AutoNextStage", {
+    Title="▶ Auto Tahap Selanjutnya", Default=false,
+    Callback=function(v)
+        if v then
+            pcall(function()
+                if Fluent.Options["AutoRetry"] then Fluent.Options["AutoRetry"]:SetValue(false) end
+                if Fluent.Options["AutoLobby"] then Fluent.Options["AutoLobby"]:SetValue(false) end
+            end)
+        end
+        autoSave()
+    end
+})
+Tabs.Main:AddToggle("AutoLobby", {
+    Title="▶ Auto Kembali ke Lobi", Default=false,
+    Callback=function(v)
+        if v then
+            pcall(function()
+                if Fluent.Options["AutoRetry"]     then Fluent.Options["AutoRetry"]:SetValue(false) end
+                if Fluent.Options["AutoNextStage"] then Fluent.Options["AutoNextStage"]:SetValue(false) end
+            end)
+        end
+        autoSave()
+    end
+})
+
+-- Tab Summon
+Tabs.Summon:AddToggle("AutoSummon",    { Title="Auto Summon (Gacha)",            Default=false, Callback = autoSave })
+Tabs.Summon:AddDropdown("SummonPack",  { Title="Pack Selection", Values={"Pack1","Pack2","Pack3"}, Default="Pack1", Callback = autoSave })
+Tabs.Summon:AddInput("CustomSummonPack",{ Title="Custom Pack Override", Default="", Placeholder="e.g. Common Pack", Callback = autoSave })
+Tabs.Summon:AddSlider("SummonAmount",  { Title="Amount per Summon", Min=1, Max=10, Default=1, Rounding=0, Callback = autoSave })
+Tabs.Summon:AddSlider("SummonInterval",{ Title="Delay (detik)",     Min=1, Max=10, Default=3, Rounding=0, Callback = autoSave })
+
+-- Tab Inventory
+Tabs.Inventory:AddToggle("SellRare",      { Title="Auto Sell Rare",       Default=false, Callback = autoSave })
+Tabs.Inventory:AddToggle("SellEpic",      { Title="Auto Sell Epic",        Default=false, Callback = autoSave })
+Tabs.Inventory:AddToggle("SellLegendary", { Title="Auto Sell Legendary",   Default=false, Callback = autoSave })
+Tabs.Inventory:AddToggle("AutoFuse",      { Title="Auto Fuse Lower Stars", Default=false, Callback = autoSave })
+
+-- Tab Settings
+Tabs.Settings:AddToggle("AutoRejoin", { Title="Auto Rejoin on Disconnect", Default=true, Callback = autoSave })
+Tabs.Settings:AddButton({ Title="Unload / Close", Callback=function()
+    Fluent:Destroy()
+    pcall(function()
+        local old = game:GetService("CoreGui"):FindFirstChild("SummonHeroesToggleGui")
+        if old then old:Destroy() end
+    end)
+end})
+
+-- ─── SaveManager & InterfaceManager ──────────────────────────────────────────
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetFolder("SummonHeroes")
+SaveManager:BuildConfigSection(Tabs.Settings)
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+Window:SelectTab(1)
+if isInBattle() then
+    SaveManager:LoadAutoloadConfig()
+end
+
+Fluent:Notify({
+    Title   = "Summon Heroes Bot",
+    Content = "Ready! Setiap toggle MANDIRI — aktifkan langsung tanpa perlu Bot Active.\n" ..
+              "Tip: Buka Xeno Settings > Auto-Execute untuk tidak perlu execute ulang saat lobby!",
+    Duration= 8
+})
+
+-- ─── Loop Utama — mulai SETELAH GUI agar Options ter-register ────────────────
+task.wait(0.5)
+
+-- Loop 1: Auto Wave Ready + Auto Collect + Auto Vote
+task.spawn(function()
+    while task.wait(1) do
+        -- Auto Wave Ready (MANDIRI)
+        if GetOption("AutoReady", false) then
+            pcall(function()
+                if ReadyRemote then
+                    ReadyRemote:FireServer()
+                    debugPrint("[AutoReady] Waves_Ready fired")
+                end
+            end)
+        end
+
+        -- Auto Collect Chests (MANDIRI)
+        if GetOption("AutoCollectChests", false) then
+            collectChests()
+        end
+
+        -- Auto Vote (MANDIRI — hanya jika di dalam pertempuran)
+        pcall(function()
+            if isInBattle() then
+                if isVoteScreenVisible() then
+                    if voteScreenVisibleSince == 0 then
+                        voteScreenVisibleSince = os.time()
+                    end
+                    -- Tunggu 3 detik setelah layar hasil muncul baru lakukan auto vote
+                    if os.time() - voteScreenVisibleSince >= 3 then
+                        tryAutoVote()
+                    end
+                else
+                    voteScreenVisibleSince = 0
+                    -- Reset state saat layar vote hilang
+                    if votedThisRound or voteAttempts > 0 then
+                        votedThisRound = false
+                        voteAttempts   = 0
+                    end
+                end
+            else
+                voteScreenVisibleSince = 0
+                if next(chestCooldowns) ~= nil then
+                    table.clear(chestCooldowns)
+                    debugPrint("[Chests] Reset chest cooldowns list")
+                end
+            end
+        end)
+    end
+end)
+
+-- Loop 2: Auto Summon
+task.spawn(function()
+    while true do
+        if GetOption("AutoSummon", false) then
+            pcall(function()
+                if SummonRemote then
+                    local custom = GetOption("CustomSummonPack","")
+                    local pack   = (custom~="") and custom or GetOption("SummonPack","Pack1")
+                    local amt    = tonumber(GetOption("SummonAmount",1)) or 1
+                    SummonRemote:FireServer(pack, amt)
+                    debugPrint("[AutoSummon] "..pack.." x"..amt)
+                end
+            end)
+            task.wait(tonumber(GetOption("SummonInterval",3)) or 3)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+-- Loop 3: Auto Sell & Auto Fuse
+task.spawn(function()
+    while task.wait(10) do
+        if GetOption("SellRare",false) or GetOption("SellEpic",false) or GetOption("SellLegendary",false) then
+            sellUnits()
+        end
+        if GetOption("AutoFuse",false) then fuseUnits() end
+    end
+end)
+
+-- Loop 4: Auto Rejoin
+task.spawn(function()
+    while task.wait(10) do
+        if GetOption("AutoRejoin",true) then checkDisconnection() end
+    end
+end)
