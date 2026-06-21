@@ -788,22 +788,24 @@ local function updateSpeed(val)
             if GetOpt("SpeedToggle", false) then
                 hum.WalkSpeed = val
             else
-                hum.WalkSpeed = 16
+                hum.WalkSpeed = GameIntendedSpeed
             end
         end
     end)
 end
 
 RunService.PreSimulation:Connect(function()
-    local hum = getHum()
-    if hum then
-        local enabled = GetOpt("SpeedToggle", false)
-        local spd = enabled and GetOpt("SpeedSlider", 16) or 16
-        pcall(function()
-            if hum.WalkSpeed ~= spd then
-                hum.WalkSpeed = spd
-            end
-        end)
+    local enabled = GetOpt("SpeedToggle", false)
+    if enabled then
+        local hum = getHum()
+        if hum then
+            local spd = GetOpt("SpeedSlider", 16)
+            pcall(function()
+                if hum.WalkSpeed ~= spd then
+                    hum.WalkSpeed = spd
+                end
+            end)
+        end
     end
     -- Infinite Stamina
     pcall(function()
@@ -954,7 +956,10 @@ end})
 
 -- Movement Tab
 local movSec=Tabs.Movement:AddSection("Movement")
-local speedToggle = movSec:AddToggle("SpeedToggle", {Title="Speed Hack", Default=false, Callback=autoSave})
+local speedToggle = movSec:AddToggle("SpeedToggle", {Title="Speed Hack", Default=false, Callback=function(val)
+    autoSave()
+    updateSpeed(GetOpt("SpeedSlider", 16))
+end})
 local speedSlider = movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
 movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
 
