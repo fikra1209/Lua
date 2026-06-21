@@ -234,6 +234,7 @@ local function getHum()    local c=getChar(); return c and c:FindFirstChildOfCla
 local function getHRP()    local c=getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
 
 -- ─── Mouse & Movement Hook ───────────────────────────────────────────────────
+local speedToggle, speedSlider
 local GameIntendedSpeed = 16
 local successHook = false
 local oldIndex
@@ -848,6 +849,53 @@ RunService.Stepped:Connect(function()
     end
 end)
 
+-- ─── Legit Dash (Gocek Killer) ───────────────────────────────────────────────
+local isDashing = false
+local function performDash(direction, speed, duration)
+    if isDashing then return end
+    isDashing = true
+    
+    local hum = getHum()
+    local myHrp = getHRP()
+    if hum and myHrp then
+        local oldSpeedToggle = GetOpt("SpeedToggle", false)
+        local oldSpeedSlider = GetOpt("SpeedSlider", 16)
+        
+        if speedToggle and speedSlider then
+            speedToggle:SetValue(true)
+            speedSlider:SetValue(speed)
+        else
+            hum.WalkSpeed = speed
+        end
+        
+        local startTime = os.clock()
+        local conn
+        conn = RunService.PreSimulation:Connect(function()
+            if os.clock() - startTime > duration then
+                conn:Disconnect()
+                if speedToggle and speedSlider then
+                    speedToggle:SetValue(oldSpeedToggle)
+                    speedSlider:SetValue(oldSpeedSlider)
+                else
+                    if oldSpeedToggle then
+                        hum.WalkSpeed = oldSpeedSlider
+                    else
+                        hum.WalkSpeed = GameIntendedSpeed
+                    end
+                end
+                isDashing = false
+            else
+                if not (speedToggle and speedSlider) then
+                    hum.WalkSpeed = speed
+                end
+                hum:Move(direction, false)
+            end
+        end)
+    else
+        isDashing = false
+    end
+end
+
 -- ─── Auto Gocek Killer Loop ──────────────────────────────────────────────────
 task.spawn(function()
     local lastAutoJukeTime = 0
@@ -864,9 +912,21 @@ task.spawn(function()
                         local now = os.clock()
                         if now - lastAutoJukeTime > 2 then
                             lastAutoJukeTime = now
-                            local mode = GetOpt("JukeMode", "Behind Killer")
+                            local mode = GetOpt("JukeMode", "Legit Dash")
                             
-                            if mode == "Behind Killer" then
+                            if mode == "Legit Dash" then
+                                local hum = getHum()
+                                if hum then
+                                    local dir = hum.MoveDirection
+                                    if dir.Magnitude < 0.1 then
+                                        dir = (myHrp.Position - kHrp.Position) * Vector3.new(1, 0, 1)
+                                    end
+                                    if dir.Magnitude > 0.1 then
+                                        performDash(dir.Unit, 45, 0.4)
+                                        Fluent:Notify({Title="Auto Gocek!", Content="Lari menghindar dari Killer!", Duration=2})
+                                    end
+                                end
+                            elseif mode == "Behind Killer" then
                                 myHrp.CFrame = kHrp.CFrame * CFrame.new(0, 0, 8)
                                 Fluent:Notify({Title="Auto Gocek!", Content="Mencoba menghindar ke belakang Killer!", Duration=2})
                             elseif mode == "Nearest Pallet" then
@@ -896,10 +956,28 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
     if input.KeyCode == bind then
         pcall(function()
-            local mode = GetOpt("JukeMode", "Behind Killer")
+            local mode = GetOpt("JukeMode", "Legit Dash")
             local myHrp = getHRP(); if not myHrp then return end
             
-            if mode == "Behind Killer" then
+            if mode == "Legit Dash" then
+                local hum = getHum()
+                if hum then
+                    local dir = hum.MoveDirection
+                    if dir.Magnitude < 0.1 then
+                        local killerChar = getKillerChar()
+                        local kHrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                        if kHrp then
+                            dir = (myHrp.Position - kHrp.Position) * Vector3.new(1, 0, 1)
+                        else
+                            dir = -myHrp.CFrame.LookVector
+                        end
+                    end
+                    if dir.Magnitude > 0.1 then
+                        performDash(dir.Unit, 45, 0.4)
+                        Fluent:Notify({Title="Gocek!", Content="Lari menghindar!", Duration=2})
+                    end
+                end
+            elseif mode == "Behind Killer" then
                 local killerChar = getKillerChar()
                 local kHrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
                 if kHrp then
@@ -956,15 +1034,15 @@ end})
 
 -- Movement Tab
 local movSec=Tabs.Movement:AddSection("Movement")
-local speedToggle = movSec:AddToggle("SpeedToggle", {Title="Speed Hack", Default=false, Callback=function(val)
+speedToggle = movSec:AddToggle("SpeedToggle", {Title="Speed Hack", Default=false, Callback=function(val)
     autoSave()
     updateSpeed(GetOpt("SpeedSlider", 16))
 end})
-local speedSlider = movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
+speedSlider = movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
 movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
 
 local jukeSec = Tabs.Movement:AddSection("Gocek Killer")
-jukeSec:AddDropdown("JukeMode", {Title="Juke Mode", Values={"Behind Killer", "Nearest Pallet", "Backward Dash"}, Default="Behind Killer", Callback=autoSave})
+jukeSec:AddDropdown("JukeMode", {Title="Juke Mode", Values={"Legit Dash", "Behind Killer", "Nearest Pallet", "Backward Dash"}, Default="Legit Dash", Callback=autoSave})
 jukeSec:AddToggle("AutoJuke", {Title="Auto Gocek (Jarak 1 Meter)", Default=false, Callback=autoSave})
 jukeSec:AddKeybind("JukeKey", {Title="Juke Trigger Key", Default="V"})
 
