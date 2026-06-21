@@ -233,12 +233,9 @@ local function getChar()   return player.Character end
 local function getHum()    local c=getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
 local function getHRP()    local c=getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
 
--- ─── Movement Hook ────────────────────────────────────────────────────────────
-local GameIntendedSpeed = 16
-
+-- ─── Mouse/Aimbot Hook ────────────────────────────────────────────────────────
 local successHook = false
 local oldIndex
-local oldNewIndex
 
 -- 1. Try hookmetamethod (safer, cleaner)
 successHook = pcall(function()
@@ -258,24 +255,9 @@ successHook = pcall(function()
                         if hrp then return hrp end
                     end
                 end
-            elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
-                if key == "WalkSpeed" then return GameIntendedSpeed end
             end
         end
         return oldIndex(self, key)
-    end))
-    
-    oldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, key, value)
-        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-            if key == "WalkSpeed" then
-                GameIntendedSpeed = value
-                if value > 2 then
-                    local customSpd = GetOpt("SpeedSlider", 16)
-                    if customSpd ~= 16 then value = customSpd end
-                end
-            end
-        end
-        return oldNewIndex(self, key, value)
     end))
 end)
 
@@ -284,7 +266,6 @@ if not successHook then
     successHook = pcall(function()
         local mt = getrawmetatable(game)
         oldIndex = mt.__index
-        oldNewIndex = mt.__newindex
         
         setreadonly(mt, false)
         mt.__index = newcclosure(function(self, key)
@@ -301,33 +282,18 @@ if not successHook then
                             if hrp then return hrp end
                         end
                     end
-                elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
-                    if key == "WalkSpeed" then return GameIntendedSpeed end
                 end
             end
             return oldIndex(self, key)
-        end)
-        
-        mt.__newindex = newcclosure(function(self, key, value)
-            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-                if key == "WalkSpeed" then
-                    GameIntendedSpeed = value
-                    if value > 2 then
-                        local customSpd = GetOpt("SpeedSlider", 16)
-                        if customSpd ~= 16 then value = customSpd end
-                    end
-                end
-            end
-            return oldNewIndex(self, key, value)
         end)
         setreadonly(mt, true)
     end)
 end
 
 if successHook then
-    log("Movement & Mouse metatable hooks active.")
+    log("Mouse metatable hook active.")
 else
-    log("WARNING: Metatable hooks failed. Fallback to direct overrides.")
+    log("WARNING: Mouse metatable hook failed.")
 end
 
 
@@ -643,8 +609,11 @@ task.spawn(function()
         if scEvent and scResult then
             scEvent.OnClientEvent:Connect(function(...)
                 if GetOpt("AutoSkillCheck", false) then
+                    local args = {...}
                     pcall(createVisualIndicator)
-                    scResult:FireServer(true, true, ...)
+                    task.wait(math.random(75, 150) / 1000)
+                    -- FireServer signature matches: (success, isPerfect, ...sessionArgs)
+                    scResult:FireServer(true, true, unpack(args))
                 end
             end)
         end
@@ -658,8 +627,10 @@ task.spawn(function()
         if hEvent and hResult then
             hEvent.OnClientEvent:Connect(function(...)
                 if GetOpt("AutoSkillCheck", false) then
+                    local args = {...}
                     pcall(createVisualIndicator)
-                    hResult:FireServer(true, true, ...)
+                    task.wait(math.random(75, 150) / 1000)
+                    hResult:FireServer(true, true, unpack(args))
                 end
             end)
         end
@@ -694,26 +665,7 @@ task.spawn(function()
 end)
 
 -- ─── Movement ─────────────────────────────────────────────────────────────────
-local function updateSpeed(val)
-    autoSave()
-    pcall(function()
-        local hum = getHum()
-        if hum then
-            hum.WalkSpeed = val
-        end
-    end)
-end
-
 RunService.PreSimulation:Connect(function()
-    local hum = getHum()
-    if hum then
-        local spd = GetOpt("SpeedSlider", 16)
-        pcall(function()
-            if hum.WalkSpeed ~= spd then
-                hum.WalkSpeed = spd
-            end
-        end)
-    end
     -- Infinite Stamina
     pcall(function()
         local c = getChar()
@@ -747,6 +699,45 @@ RunService.Stepped:Connect(function()
                     if p:IsA("BasePart") then
                         if p.Name ~= "HumanoidRootPart" then
                             p.CanCollide = true
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- ─── Auto Gocek Killer Loop ──────────────────────────────────────────────────
+task.spawn(function()
+    local lastAutoJukeTime = 0
+    while task.wait(0.05) do
+        if GetOpt("AutoJuke", false) then
+            pcall(function()
+                local myHrp = getHRP()
+                local killerChar = getKillerChar()
+                local kHrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
+                if myHrp and kHrp then
+                    local dist = (myHrp.Position - kHrp.Position).Magnitude
+                    -- Jarak 1 meter (sekitar 5.5 studs)
+                    if dist <= 5.5 then
+                        local now = os.clock()
+                        if now - lastAutoJukeTime > 2 then
+                            lastAutoJukeTime = now
+                            local mode = GetOpt("JukeMode", "Behind Killer")
+                            
+                            if mode == "Behind Killer" then
+                                myHrp.CFrame = kHrp.CFrame * CFrame.new(0, 0, 8)
+                                Fluent:Notify({Title="Auto Gocek!", Content="Mencoba menghindar ke belakang Killer!", Duration=2})
+                            elseif mode == "Nearest Pallet" then
+                                local pallet = getNearestPallet()
+                                if pallet then
+                                    myHrp.CFrame = pallet.CFrame + Vector3.new(0, 3, 0)
+                                    Fluent:Notify({Title="Auto Gocek!", Content="Teleport ke Pallet terdekat!", Duration=2})
+                                end
+                            elseif mode == "Backward Dash" then
+                                myHrp.CFrame = myHrp.CFrame * CFrame.new(0, 0, 15)
+                                Fluent:Notify({Title="Auto Gocek!", Content="Backward Dash!", Duration=2})
+                            end
                         end
                     end
                 end
@@ -820,11 +811,11 @@ end})
 
 -- Movement Tab
 local movSec=Tabs.Movement:AddSection("Movement")
-movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
 movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
 
 local jukeSec = Tabs.Movement:AddSection("Gocek Killer")
 jukeSec:AddDropdown("JukeMode", {Title="Juke Mode", Values={"Behind Killer", "Nearest Pallet", "Backward Dash"}, Default="Behind Killer", Callback=autoSave})
+jukeSec:AddToggle("AutoJuke", {Title="Auto Gocek (Jarak 1 Meter)", Default=false, Callback=autoSave})
 jukeSec:AddKeybind("JukeKey", {Title="Juke Trigger Key", Default="V"})
 
 -- Settings Tab
