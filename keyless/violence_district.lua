@@ -601,78 +601,156 @@ end)
 
 
 
--- ─── Auto Skill Check (Remote Hook) ──────────────────────────────────────────
-local function createVisualIndicator(zoneStart, zoneEnd)
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "VDSkillCheckGui"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = playerGui
+-- ─── Auto Skill Check (UI & Spacebar Simulation) ─────────────────────────────
+task.spawn(function()
+    local activeGuiConnections = {}
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 200, 0, 200)
-    frame.Position = UDim2.new(0.5, -100, 0.4, -100)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    frame.BackgroundTransparency = 0.2
-    frame.BorderSizePixel = 0
-    frame.Parent = screenGui
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0.5, 0)
-    Instance.new("UIStroke", frame).Color = Color3.fromRGB(255, 50, 50)
+    local function setupSolver(gui)
+        if not gui then return end
+        if activeGuiConnections[gui] then return end -- Avoid duplicate connections
 
-    local successLabel = Instance.new("TextLabel")
-    successLabel.Size = UDim2.new(1, 0, 0, 30)
-    successLabel.Position = UDim2.new(0, 0, 0.45, -15)
-    successLabel.BackgroundTransparency = 1
-    successLabel.Text = "PERFECT!"
-    successLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
-    successLabel.Font = Enum.Font.GothamBold
-    successLabel.TextSize = 24
-    successLabel.Parent = frame
+        local check = gui:WaitForChild("Check", 10)
+        if not check then return end
+        
+        local line = check:WaitForChild("Line", 10)
+        local goal = check:WaitForChild("Goal", 10)
+        if not line or not goal then return end
+        
+        local hasPressed = false
+        local connection
+        
+        local function isLineInGoal()
+            if not line or not goal then return false end
+            local lr = line.Rotation % 360
+            local gr = goal.Rotation % 360
+            local gs = (gr + 104) % 360
+            local ge = (gr + 114) % 360
+            if gs > ge then
+                return lr >= gs or lr <= ge
+            else
+                return lr >= gs and lr <= ge
+            end
+        end
+        
+        local function checkState()
+            if not gui or not gui.Parent or not check or not check.Parent then
+                if connection then
+                    connection:Disconnect()
+                    activeGuiConnections[gui] = nil
+                end
+                return
+            end
+            
+            if not GetOpt("AutoSkillCheck", false) then 
+                hasPressed = false
+                return 
+            end
+            
+            if check.Visible then
+                if not hasPressed then
+                    if isLineInGoal() then
+                        hasPressed = true
+                        log("Skill check target reached! Simulating spacebar press.")
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                        task.wait(0.01)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                    end
+                end
+            else
+                hasPressed = false
+            end
+        end
+        
+        connection = RunService.Heartbeat:Connect(checkState)
+        activeGuiConnections[gui] = connection
+        
+        log("Successfully hooked UI-based SkillCheck solver to " .. gui.Name)
+    end
 
-    task.spawn(function()
-        task.wait(1.2)
-        screenGui:Destroy()
+    -- Initial scan of existing GUIs
+    for _, child in ipairs(playerGui:GetChildren()) do
+        if child.Name == "SkillCheckPromptGui" or child.Name == "SkillCheckPromptGui-con" then
+            pcall(setupSolver, child)
+        end
+    end
+
+    -- Listen for future GUIs added to PlayerGui
+    playerGui.ChildAdded:Connect(function(child)
+        if child.Name == "SkillCheckPromptGui" or child.Name == "SkillCheckPromptGui-con" then
+            task.wait(0.2)
+            pcall(setupSolver, child)
+        end
     end)
+end)
+
+-- ─── Pistol Crosshair ────────────────────────────────────────────────────────
+local crosshairGui = nil
+local function updateCrosshair(enabled)
+    if enabled then
+        if crosshairGui then pcall(function() crosshairGui:Destroy() end) end
+        
+        local success, err = pcall(function()
+            local cg = pcall(game.GetService, game, "CoreGui") and game:GetService("CoreGui") or playerGui
+            crosshairGui = Instance.new("ScreenGui")
+            crosshairGui.Name = "VDCrosshairGui"
+            crosshairGui.ResetOnSpawn = false
+            crosshairGui.Parent = cg
+            
+            -- Center Dot
+            local centerDot = Instance.new("Frame")
+            centerDot.Name = "CenterDot"
+            centerDot.Size = UDim2.fromOffset(4, 4)
+            centerDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+            centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+            centerDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+            centerDot.BorderSizePixel = 0
+            centerDot.Parent = crosshairGui
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0.5, 0)
+            corner.Parent = centerDot
+            
+            local stroke = Instance.new("UIStroke")
+            stroke.Color = Color3.new(0, 0, 0)
+            stroke.Thickness = 1
+            stroke.Parent = centerDot
+
+            -- 4 crosshair bars around center
+            local offsets = {
+                Top = {Size = UDim2.fromOffset(2, 6), Pos = UDim2.new(0.5, 0, 0.5, -7)},
+                Bottom = {Size = UDim2.fromOffset(2, 6), Pos = UDim2.new(0.5, 0, 0.5, 7)},
+                Left = {Size = UDim2.fromOffset(6, 2), Pos = UDim2.new(0.5, -7, 0.5, 0)},
+                Right = {Size = UDim2.fromOffset(6, 2), Pos = UDim2.new(0.5, 7, 0.5, 0)}
+            }
+            
+            for name, cfg in pairs(offsets) do
+                local line = Instance.new("Frame")
+                line.Name = name
+                line.Size = cfg.Size
+                line.Position = cfg.Pos
+                line.AnchorPoint = Vector2.new(0.5, 0.5)
+                line.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                line.BorderSizePixel = 0
+                line.Parent = crosshairGui
+                
+                local lineStroke = Instance.new("UIStroke")
+                lineStroke.Color = Color3.new(0, 0, 0)
+                lineStroke.Thickness = 1
+                lineStroke.Parent = line
+            end
+        end)
+        if not success then
+            log("Error creating crosshair UI: " .. tostring(err))
+        end
+    else
+        if crosshairGui then
+            pcall(function() crosshairGui:Destroy() end)
+            crosshairGui = nil
+        end
+    end
 end
 
-task.spawn(function()
-    local rem = ReplicatedStorage:WaitForChild("Remotes", 15)
-    if not rem then return end
 
-    -- Generator skill check
-    local genR = rem:WaitForChild("Generator", 10)
-    if genR then
-        local scEvent = genR:WaitForChild("SkillCheckEvent", 5)
-        local scResult = genR:WaitForChild("SkillCheckResultEvent", 5)
-        if scEvent and scResult then
-            scEvent.OnClientEvent:Connect(function(...)
-                if GetOpt("AutoSkillCheck", false) then
-                    local args = {...}
-                    pcall(createVisualIndicator)
-                    task.wait(math.random(75, 150) / 1000)
-                    -- FireServer signature matches: (success, isPerfect, ...sessionArgs)
-                    scResult:FireServer(true, true, unpack(args))
-                end
-            end)
-        end
-    end
-
-    -- Healing skill check
-    local healR = rem:WaitForChild("Healing", 10)
-    if healR then
-        local hEvent = healR:WaitForChild("SkillCheckEvent", 5)
-        local hResult = healR:WaitForChild("SkillCheckResultEvent", 5)
-        if hEvent and hResult then
-            hEvent.OnClientEvent:Connect(function(...)
-                if GetOpt("AutoSkillCheck", false) then
-                    local args = {...}
-                    pcall(createVisualIndicator)
-                    task.wait(math.random(75, 150) / 1000)
-                    hResult:FireServer(true, true, unpack(args))
-                end
-            end)
-        end
-    end
-end)
 
 -- ─── Killer Auto Attack ───────────────────────────────────────────────────────
 task.spawn(function()
@@ -850,6 +928,10 @@ local surSec=Tabs.Survivor:AddSection("Automation")
 surSec:AddToggle("AutoRepair",     {Title="Auto Repair Generator", Default=false, Callback=autoSave})
 surSec:AddToggle("AutoSkillCheck", {Title="Auto Skill Check (Perfect)", Default=false, Callback=autoSave})
 surSec:AddToggle("PistolAimbot",   {Title="Pistol Auto Hit (Silent Aim)", Default=false, Callback=autoSave})
+surSec:AddToggle("PistolCrosshair", {Title="Pistol Crosshair", Default=false, Callback=function(val)
+    autoSave()
+    updateCrosshair(val)
+end})
 
 -- Killer Tab
 local kilSec=Tabs.Killer:AddSection("Automation")
@@ -885,6 +967,7 @@ jukeSec:AddKeybind("JukeKey", {Title="Juke Trigger Key", Default="V"})
 Tabs.Settings:AddButton({Title="Close / Unload", Callback=function()
     Fluent:Destroy()
     pcall(function() game:GetService("CoreGui"):FindFirstChild("VDToggleGui"):Destroy() end)
+    pcall(function() updateCrosshair(false) end)
 end})
 
 SM:SetLibrary(Fluent); IM:SetLibrary(Fluent)
@@ -895,6 +978,11 @@ IM:SetFolder("ViolenceDistrictSettings")
 IM:BuildInterfaceSection(Tabs.Settings)
 Window:SelectTab(1)
 -- SM:LoadAutoloadConfig()
+
+task.spawn(function()
+    task.wait(1.5)
+    updateCrosshair(GetOpt("PistolCrosshair", false))
+end)
 
 Fluent:Notify({
     Title="Violence District Hub v3.0",
