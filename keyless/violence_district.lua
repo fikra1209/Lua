@@ -233,9 +233,11 @@ local function getChar()   return player.Character end
 local function getHum()    local c=getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
 local function getHRP()    local c=getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
 
--- ─── Mouse/Aimbot Hook ────────────────────────────────────────────────────────
+-- ─── Mouse & Movement Hook ───────────────────────────────────────────────────
+local GameIntendedSpeed = 16
 local successHook = false
 local oldIndex
+local oldNewIndex
 
 -- 1. Try hookmetamethod (safer, cleaner)
 successHook = pcall(function()
@@ -255,9 +257,26 @@ successHook = pcall(function()
                         if hrp then return hrp end
                     end
                 end
+            elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
+                if key == "WalkSpeed" then
+                    return GetOpt("SpeedToggle", false) and GameIntendedSpeed or oldIndex(self, key)
+                end
             end
         end
         return oldIndex(self, key)
+    end))
+    
+    oldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, key, value)
+        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+            if key == "WalkSpeed" then
+                GameIntendedSpeed = value
+                if GetOpt("SpeedToggle", false) and value > 2 then
+                    local customSpd = GetOpt("SpeedSlider", 16)
+                    if customSpd ~= 16 then value = customSpd end
+                end
+            end
+        end
+        return oldNewIndex(self, key, value)
     end))
 end)
 
@@ -266,6 +285,7 @@ if not successHook then
     successHook = pcall(function()
         local mt = getrawmetatable(game)
         oldIndex = mt.__index
+        oldNewIndex = mt.__newindex
         
         setreadonly(mt, false)
         mt.__index = newcclosure(function(self, key)
@@ -282,18 +302,35 @@ if not successHook then
                             if hrp then return hrp end
                         end
                     end
+                elseif typeof(self) == "Instance" and self:IsA("Humanoid") then
+                    if key == "WalkSpeed" then
+                        return GetOpt("SpeedToggle", false) and GameIntendedSpeed or oldIndex(self, key)
+                    end
                 end
             end
             return oldIndex(self, key)
+        end)
+        
+        mt.__newindex = newcclosure(function(self, key, value)
+            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
+                if key == "WalkSpeed" then
+                    GameIntendedSpeed = value
+                    if GetOpt("SpeedToggle", false) and value > 2 then
+                        local customSpd = GetOpt("SpeedSlider", 16)
+                        if customSpd ~= 16 then value = customSpd end
+                    end
+                end
+            end
+            return oldNewIndex(self, key, value)
         end)
         setreadonly(mt, true)
     end)
 end
 
 if successHook then
-    log("Mouse metatable hook active.")
+    log("Mouse & Speed metatable hooks active.")
 else
-    log("WARNING: Mouse metatable hook failed.")
+    log("WARNING: Metatable hooks failed.")
 end
 
 
@@ -665,7 +702,31 @@ task.spawn(function()
 end)
 
 -- ─── Movement ─────────────────────────────────────────────────────────────────
+local function updateSpeed(val)
+    autoSave()
+    pcall(function()
+        local hum = getHum()
+        if hum then
+            if GetOpt("SpeedToggle", false) then
+                hum.WalkSpeed = val
+            else
+                hum.WalkSpeed = 16
+            end
+        end
+    end)
+end
+
 RunService.PreSimulation:Connect(function()
+    local hum = getHum()
+    if hum then
+        local enabled = GetOpt("SpeedToggle", false)
+        local spd = enabled and GetOpt("SpeedSlider", 16) or 16
+        pcall(function()
+            if hum.WalkSpeed ~= spd then
+                hum.WalkSpeed = spd
+            end
+        end)
+    end
     -- Infinite Stamina
     pcall(function()
         local c = getChar()
@@ -811,6 +872,8 @@ end})
 
 -- Movement Tab
 local movSec=Tabs.Movement:AddSection("Movement")
+local speedToggle = movSec:AddToggle("SpeedToggle", {Title="Speed Hack", Default=false, Callback=autoSave})
+local speedSlider = movSec:AddSlider("SpeedSlider", {Title="Walk Speed", Min=16, Max=150, Default=16, Rounding=0, Callback=updateSpeed})
 movSec:AddToggle("Noclip",      {Title="Noclip (tembus dinding)", Default=false, Callback=autoSave})
 
 local jukeSec = Tabs.Movement:AddSection("Gocek Killer")
