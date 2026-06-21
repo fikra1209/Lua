@@ -12,6 +12,10 @@
     - SaveManager + InterfaceManager Fluent integration
 ]]
 
+if game.GameId ~= 6739698191 and game.PlaceId ~= 93978595733734 then
+    return
+end
+
 -- ─── Initialization ──────────────────────────────────────────────────────────
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,8 +24,14 @@ local RunService        = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local UserInputService  = game:GetService("UserInputService")
 
-local player    = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer
+while not player do
+    task.wait(0.1)
+    player = Players.LocalPlayer
+end
+local playerGui = player:WaitForChild("PlayerGui", 30)
+if not playerGui then return end
+
 
 local function debugPrint(msg)
     local text = "[Violence District Bot] " .. tostring(msg)
@@ -30,6 +40,48 @@ local function debugPrint(msg)
 end
 
 debugPrint("Initializing script...")
+
+pcall(function()
+    task.spawn(function()
+        task.wait(3) -- Tunggu game dimuat
+        local result = "[Violence District Diagnostics]\n"
+        
+        -- Pindai workspace children
+        result = result .. "--- Workspace Children ---\n"
+        for _, child in ipairs(workspace:GetChildren()) do
+            result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
+        end
+        
+        -- Pindai ProximityPrompt
+        result = result .. "\n--- Proximity Prompts ---\n"
+        local promptCount = 0
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                promptCount = promptCount + 1
+                result = result .. "Prompt: " .. desc:GetFullName() 
+                    .. " | ObjectText: " .. tostring(desc.ObjectText) 
+                    .. " | ActionText: " .. tostring(desc.ActionText) .. "\n"
+            end
+        end
+        result = result .. "Total Prompts found: " .. promptCount .. "\n"
+        
+        -- Pindai PlayerGui ScreenGuis
+        result = result .. "\n--- PlayerGui ScreenGuis ---\n"
+        for _, gui in ipairs(playerGui:GetChildren()) do
+            result = result .. "Gui: " .. gui.Name .. " (Enabled: " .. tostring(gui.Enabled) .. ")\n"
+            -- Cetak child yang mencurigakan (seperti frame atau indicator)
+            for _, child in ipairs(gui:GetDescendants()) do
+                local cName = child.Name:lower()
+                if cName:find("check") or cName:find("minigame") or cName:find("needle") or cName:find("indicator") or cName:find("zone") or cName:find("qte") or cName:find("hit") or cName:find("bar") or cName:find("pointer") then
+                    result = result .. "  -> Child: " .. child:GetFullName() .. " (Class: " .. child.ClassName .. ")\n"
+                end
+            end
+        end
+        
+        writefile("VD_Diagnostics.txt", result)
+        debugPrint("Diagnostics saved to VD_Diagnostics.txt")
+    end)
+end)
 
 -- ─── Self-Healing HttpGet Library Loader ─────────────────────────────────────
 local function httpGet(url)
