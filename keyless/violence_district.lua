@@ -43,43 +43,59 @@ debugPrint("Initializing script...")
 
 pcall(function()
     task.spawn(function()
-        task.wait(3) -- Tunggu game dimuat
-        local result = "[Violence District Diagnostics]\n"
-        
-        -- Pindai workspace children
-        result = result .. "--- Workspace Children ---\n"
-        for _, child in ipairs(workspace:GetChildren()) do
-            result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
-        end
-        
-        -- Pindai ProximityPrompt
-        result = result .. "\n--- Proximity Prompts ---\n"
-        local promptCount = 0
-        for _, desc in ipairs(workspace:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") then
-                promptCount = promptCount + 1
-                result = result .. "Prompt: " .. desc:GetFullName() 
-                    .. " | ObjectText: " .. tostring(desc.ObjectText) 
-                    .. " | ActionText: " .. tostring(desc.ActionText) .. "\n"
+        local ok, err = pcall(function()
+            task.wait(3) -- Tunggu game dimuat
+            local result = "[Violence District In-Depth Diagnostics]\n"
+            
+            -- 1. Pindai workspace children
+            result = result .. "\n--- Workspace Children ---\n"
+            for _, child in ipairs(workspace:GetChildren()) do
+                result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
             end
-        end
-        result = result .. "Total Prompts found: " .. promptCount .. "\n"
-        
-        -- Pindai PlayerGui ScreenGuis
-        result = result .. "\n--- PlayerGui ScreenGuis ---\n"
-        for _, gui in ipairs(playerGui:GetChildren()) do
-            result = result .. "Gui: " .. gui.Name .. " (Enabled: " .. tostring(gui.Enabled) .. ")\n"
-            -- Cetak child yang mencurigakan (seperti frame atau indicator)
-            for _, child in ipairs(gui:GetDescendants()) do
-                local cName = child.Name:lower()
-                if cName:find("check") or cName:find("minigame") or cName:find("needle") or cName:find("indicator") or cName:find("zone") or cName:find("qte") or cName:find("hit") or cName:find("bar") or cName:find("pointer") then
-                    result = result .. "  -> Child: " .. child:GetFullName() .. " (Class: " .. child.ClassName .. ")\n"
+            
+            -- 2. Pindai Interractables
+            result = result .. "\n--- Interractables ---\n"
+            local intFolder = workspace:FindFirstChild("Interractables")
+            if intFolder then
+                for _, child in ipairs(intFolder:GetChildren()) do
+                    result = result .. "Name: " .. child.Name .. " (Class: " .. child.ClassName .. ")\n"
+                    for _, sub in ipairs(child:GetChildren()) do
+                        result = result .. "  -> Sub: " .. sub.Name .. " (Class: " .. sub.ClassName .. ")\n"
+                        for _, sub2 in ipairs(sub:GetChildren()) do
+                            result = result .. "    -> Sub2: " .. sub2.Name .. " (Class: " .. sub2.ClassName .. ")\n"
+                        end
+                    end
+                end
+            else
+                result = result .. "Folder Interractables tidak ditemukan!\n"
+            end
+            
+            -- 3. Pindai ReplicatedStorage Remotes
+            result = result .. "\n--- ReplicatedStorage Remotes ---\n"
+            for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+                if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+                    result = result .. "Remote: " .. desc:GetFullName() .. " (Class: " .. desc.ClassName .. ")\n"
                 end
             end
+            
+            -- 4. Pindai PlayerGui ScreenGuis
+            result = result .. "\n--- PlayerGui ScreenGuis ---\n"
+            for _, gui in ipairs(playerGui:GetChildren()) do
+                result = result .. "Gui: " .. gui.Name .. " (Enabled: " .. tostring(gui.Enabled) .. ")\n"
+                for _, child in ipairs(gui:GetDescendants()) do
+                    local cName = child.Name:lower()
+                    if cName:find("check") or cName:find("minigame") or cName:find("needle") or cName:find("indicator") or cName:find("zone") or cName:find("qte") or cName:find("hit") or cName:find("bar") or cName:find("pointer") then
+                        result = result .. "  -> Child: " .. child:GetFullName() .. " (Class: " .. child.ClassName .. ")\n"
+                    end
+                end
+            end
+            
+            writefile("VD_Diagnostics.txt", result)
+            debugPrint("Diagnostics saved to VD_Diagnostics.txt")
+        end)
+        if not ok then
+            debugPrint("Diagnostics thread crashed: " .. tostring(err))
         end
-        
-        writefile("VD_Diagnostics.txt", result)
-        debugPrint("Diagnostics saved to VD_Diagnostics.txt")
     end)
 end)
 
