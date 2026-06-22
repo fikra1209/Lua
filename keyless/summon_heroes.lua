@@ -1340,20 +1340,38 @@ task.spawn(function()
                                             hasEnough = false
                                         end
                                         
-                                        if hasEnough then
+                                        if not hasEnough then
+                                            debugPrint("[AutoBuy] Not enough " .. currency .. " to buy " .. itemName .. " (Price: " .. price .. ", Balance: " .. (currency == "Gold" and pGold or pGems) .. ")")
+                                        else
+                                            debugPrint("[AutoBuy] Toggled option enabled for " .. itemName .. ". Searching for buy button...")
                                             -- Find Beli button
                                             local beliBtn = nil
-                                            for _, child in ipairs(card:GetDescendants()) do
-                                                if child:IsA("TextButton") or child:IsA("ImageButton") or child:IsA("GuiButton") then
-                                                    local txt = cleanText(child.Text)
-                                                    if txt == "beli" or txt == "buy" or child.Name == "Beli" or child.Name == "Buy" then
-                                                        beliBtn = child
-                                                        break
+                                            for _, desc in ipairs(card:GetDescendants()) do
+                                                if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") or desc:IsA("ImageButton") or desc:IsA("GuiButton") then
+                                                    local txt = desc:IsA("ImageButton") and "" or cleanText(desc.Text)
+                                                    local name = tostring(desc.Name):lower()
+                                                    if txt == "beli" or txt == "buy" or name == "beli" or name == "buy" or name:find("belibtn") or name:find("buybtn") then
+                                                        if desc:IsA("GuiButton") or desc:IsA("TextButton") or desc:IsA("ImageButton") then
+                                                            beliBtn = desc
+                                                            break
+                                                        else
+                                                            -- Climb up to find the actual button parent
+                                                            local parent = desc.Parent
+                                                            for i = 1, 3 do
+                                                                if parent and (parent:IsA("GuiButton") or parent:IsA("TextButton") or parent:IsA("ImageButton")) then
+                                                                    beliBtn = parent
+                                                                    break
+                                                                end
+                                                                if parent then parent = parent.Parent else break end
+                                                            end
+                                                            if beliBtn then break end
+                                                        end
                                                     end
                                                 end
                                             end
                                             
                                             if beliBtn then
+                                                debugPrint("[AutoBuy] Clicking buy button for " .. itemName .. " (Slot " .. slotIndex .. ")")
                                                 lastPurchaseAttempt[slotIndex] = os.time()
                                                 -- Fire remote
                                                 pcall(function()
@@ -1368,6 +1386,8 @@ task.spawn(function()
                                                     task.wait(0.3)
                                                     autoConfirmPurchase()
                                                 end
+                                            else
+                                                debugPrint("[AutoBuy] WARNING: Buy button not found for " .. itemName .. " in slot " .. slotIndex)
                                             end
                                         end
                                     end
