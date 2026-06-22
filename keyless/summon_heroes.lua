@@ -1220,6 +1220,20 @@ end)
 
 task.spawn(function()
     debugPrint("[AutoBuy] Loop 5 started successfully.")
+    
+    -- One-time: list ALL remotes so we can see what's available
+    task.wait(2)
+    pcall(function()
+        local R = ReplicatedStorage:FindFirstChild("Remotes")
+        if R then
+            local names = {}
+            for _, child in ipairs(R:GetChildren()) do
+                names[#names + 1] = child.ClassName .. ":" .. child.Name
+            end
+            debugPrint("[RemoteList] " .. #names .. " remotes: " .. table.concat(names, " | "))
+        end
+    end)
+    
     while true do
         task.wait(1.5)
         if GetOption("AutoBuyShopActive", false) then
