@@ -892,11 +892,14 @@ end
 local function findShopFrame()
     for _, gui in ipairs(playerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and gui.Enabled then
-            for _, desc in ipairs(gui:GetDescendants()) do
-                if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
-                    local text = cleanText(desc.Text)
-                    if text == "toko item" or text == "item shop" then
-                        return desc
+            local gname = tostring(gui.Name):lower()
+            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
+                for _, desc in ipairs(gui:GetDescendants()) do
+                    if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
+                        local text = cleanText(desc.Text)
+                        if text == "toko item" or text == "item shop" then
+                            return desc
+                        end
                     end
                 end
             end
@@ -974,14 +977,17 @@ end
 local function autoConfirmPurchase()
     for _, gui in ipairs(playerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and gui.Enabled then
-            for _, desc in ipairs(gui:GetDescendants()) do
-                if desc:IsA("TextButton") and isGuiVisible(desc) then
-                    local txt = cleanText(desc.Text)
-                    if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
-                        local parentName = tostring(desc.Parent.Name):lower()
-                        if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") or parentName:find("alert") or parentName:find("window") or parentName:find("notification") then
-                            clickButton(desc)
-                            debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
+            local gname = tostring(gui.Name):lower()
+            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
+                for _, desc in ipairs(gui:GetDescendants()) do
+                    if desc:IsA("TextButton") and isGuiVisible(desc) then
+                        local txt = cleanText(desc.Text)
+                        if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
+                            local parentName = tostring(desc.Parent.Name):lower()
+                            if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") or parentName:find("alert") or parentName:find("window") or parentName:find("notification") then
+                                clickButton(desc)
+                                debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
+                            end
                         end
                     end
                 end
