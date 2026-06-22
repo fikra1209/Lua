@@ -822,6 +822,46 @@ local function findShopFrame()
     return nil
 end
 
+local function findHiddenShopFrame()
+    for _, gui in ipairs(playerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            local gname = tostring(gui.Name):lower()
+            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
+                for _, desc in ipairs(getDescendantsManual(gui)) do
+                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+                        local text = cleanText(desc.Text)
+                        if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
+                            return desc
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function forceOpenShopUI()
+    local shopLabel = findHiddenShopFrame()
+    if shopLabel then
+        local shopFrame = shopLabel.Parent
+        local screenGui = shopLabel:FindFirstAncestorOfClass("ScreenGui")
+        if screenGui and shopFrame then
+            screenGui.Enabled = true
+            shopFrame.Visible = true
+            -- Also try to make parent frames visible
+            local current = shopFrame
+            while current and current:IsA("GuiObject") do
+                current.Visible = true
+                current = current.Parent
+            end
+            debugPrint("[AutoBuy] Force-opened Shop GUI in battle.")
+            return shopLabel
+        end
+    end
+    return nil
+end
+
 local function getSortedShopCards(shopScreen)
     local grid = nil
     for _, desc in ipairs(getDescendantsManual(shopScreen)) do
@@ -914,7 +954,8 @@ local function getShopPrompt()
     local best = nil
     debugPrint("[ShopPrompt] Scanning workspace for ProximityPrompts...")
     local promptsFound = 0
-    local skipFolders = {"Map", "Enemies", "Towers", "Effects", "Projectiles", "Terrain"}
+    local inLobby = (game.PlaceId == 117381420723145)
+    local skipFolders = inLobby and {"Enemies", "Effects", "Projectiles"} or {"Map", "Enemies", "Towers", "Effects", "Projectiles", "Terrain"}
     local workspaceItems = getDescendantsManual(workspace, skipFolders)
     for _, desc in ipairs(workspaceItems) do
         if desc:IsA("ProximityPrompt") then
@@ -947,6 +988,7 @@ local function getShopPrompt()
 end
 
 local function closeShopUI(shopFrame)
+    local closed = false
     for _, child in ipairs(getDescendantsManual(shopFrame)) do
         local name = tostring(child.Name):lower()
         local txt = ""
@@ -969,10 +1011,19 @@ local function closeShopUI(shopFrame)
             end
             clickButton(btn)
             debugPrint("[AutoBuy] Closed Shop UI using button: " .. btn.Name)
-            return true
+            closed = true
+            break
         end
     end
-    return false
+    -- Fallback: force hide GUI frame in case click signal fails (especially in battle)
+    pcall(function()
+        local screenGui = shopFrame:FindFirstAncestorOfClass("ScreenGui")
+        if screenGui then
+            screenGui.Enabled = false
+        end
+        shopFrame.Visible = false
+    end)
+    return closed
 end
 
 local function getShopResetTime(shopFrame)
@@ -1407,33 +1458,47 @@ task.spawn(function()
                 local shopTitleLabel = findShopFrame()
                 local isCurrentlyOpen = shopTitleLabel and isGuiVisible(shopTitleLabel)
                 
-                -- Auto Open Shop if closed, enabled, and in lobby
-                if not isCurrentlyOpen and GetOption("AutoOpenShopNPC", false) and inLobby then
+                -- Auto Open Shop if closed, enabled
+                if not isCurrentlyOpen and GetOption("AutoOpenShopNPC", false) then
                     local now = os.time()
                     if now - lastAutoOpenTime >= 30 then
-                        local prompt = getShopPrompt()
-                        local char = player.Character
-                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                        if prompt and hrp then
-                            originalCFrame = hrp.CFrame
-                            local part = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt:FindFirstAncestorOfClass("BasePart")
-                            if part then
-                                -- Teleport to NPC
-                                hrp.CFrame = part.CFrame + Vector3.new(0, 1.5, 0)
-                                task.wait(0.3)
-                                fireproximityprompt(prompt)
-                                task.wait(1.0)
-                                
-                                -- Re-check if open
+                        if inLobby then
+                            local prompt = getShopPrompt()
+                            local char = player.Character
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            if prompt and hrp then
+                                originalCFrame = hrp.CFrame
+                                local part = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt:FindFirstAncestorOfClass("BasePart")
+                                if part then
+                                    -- Teleport to NPC
+                                    hrp.CFrame = part.CFrame + Vector3.new(0, 1.5, 0)
+                                    task.wait(0.3)
+                                    fireproximityprompt(prompt)
+                                    task.wait(1.0)
+                                    
+                                    -- Re-check if open
+                                    shopTitleLabel = findShopFrame()
+                                    if shopTitleLabel and isGuiVisible(shopTitleLabel) then
+                                        isCurrentlyOpen = true
+                                        openedByBot = true
+                                        debugPrint("[AutoBuy] Shop opened automatically by bot in Lobby.")
+                                    else
+                                        -- Teleport back if opening failed
+                                        hrp.CFrame = originalCFrame
+                                        originalCFrame = nil
+                                    end
+                                end
+                            end
+                        else
+                            -- Force open Shop GUI directly when in battle!
+                            local label = forceOpenShopUI()
+                            if label then
+                                task.wait(1.0) -- wait for replication/render
                                 shopTitleLabel = findShopFrame()
                                 if shopTitleLabel and isGuiVisible(shopTitleLabel) then
                                     isCurrentlyOpen = true
                                     openedByBot = true
-                                    debugPrint("[AutoBuy] Shop opened automatically by bot.")
-                                else
-                                    -- Teleport back if opening failed
-                                    hrp.CFrame = originalCFrame
-                                    originalCFrame = nil
+                                    debugPrint("[AutoBuy] Shop GUI force-opened successfully in Battle.")
                                 end
                             end
                         end
