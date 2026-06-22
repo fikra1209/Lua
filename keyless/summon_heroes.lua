@@ -1149,10 +1149,11 @@ local originalCFrame = nil
 local lastPurchaseAttempt = {}
 
 task.spawn(function()
+    debugPrint("[AutoBuy] Loop 5 started successfully.")
     while true do
         task.wait(1.5)
         if GetOption("AutoBuyShopActive", false) then
-            pcall(function()
+            local ok, err = pcall(function()
                 local inLobby = (game.PlaceId == 117381420723145)
                 local shopTitleLabel = findShopFrame()
                 local isCurrentlyOpen = shopTitleLabel and isGuiVisible(shopTitleLabel)
@@ -1341,6 +1342,9 @@ task.spawn(function()
                     end
                 end
             end)
+            if not ok then
+                debugPrint("[AutoBuy Loop Error] " .. tostring(err))
+            end
         end
     end
 end)
