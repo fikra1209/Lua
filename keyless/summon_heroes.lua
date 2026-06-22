@@ -86,132 +86,7 @@ end)
 
 debugPrint("Initializing script...")
 
--- Deep Shop System Inspection
-task.spawn(function()
-    pcall(function()
-        local function dumpTable(tb, depth)
-            depth = depth or 0
-            if depth > 4 then return "{...}" end
-            local indent = string.rep("  ", depth)
-            local s = "{\n"
-            for k, v in pairs(tb) do
-                local ks = tostring(k)
-                local vs = ""
-                if type(v) == "table" then
-                    vs = dumpTable(v, depth + 1)
-                elseif type(v) == "function" then
-                    vs = "function"
-                    local ok, info = pcall(debug.getinfo, v)
-                    if ok and info then
-                        vs = string.format("function (%s:%d)", tostring(info.source), info.linedefined)
-                    end
-                else
-                    vs = type(v) .. ":" .. tostring(v)
-                end
-                s = s .. indent .. "  " .. ks .. " = " .. vs .. ",\n"
-            end
-            s = s .. indent .. "}"
-            return s
-        end
-
-        local dumpOutput = {}
-        local function logDump(msg)
-            table.insert(dumpOutput, tostring(msg))
-        end
-
-        logDump("=== SHOP SYSTEM DEEP INSPECTION ===")
-
-        local Systems = game:GetService("ReplicatedStorage"):FindFirstChild("Systems")
-        if Systems then
-            for _, name in ipairs({"RotatingShops", "Purchase", "LimitedStock", "Items"}) do
-                local mod = Systems:FindFirstChild(name)
-                if mod and mod:IsA("ModuleScript") then
-                    logDump("Found ModuleScript: " .. mod:GetFullName())
-                    local ok, ret = pcall(require, mod)
-                    if ok then
-                        logDump("Require(" .. name .. ") returned " .. type(ret))
-                        if type(ret) == "table" then
-                            logDump(dumpTable(ret))
-                        else
-                            logDump("Value: " .. tostring(ret))
-                        end
-                    else
-                        logDump("Require(" .. name .. ") failed: " .. tostring(ret))
-                    end
-                    
-                    if decompile then
-                        local okDec, decBody = pcall(decompile, mod)
-                        if okDec and decBody then
-                            logDump("=== DECOMPILED: " .. name .. " ===")
-                            logDump(decBody)
-                            logDump("=== END DECOMPILED ===")
-                        else
-                            logDump("Decompile(" .. name .. ") failed: " .. tostring(decBody))
-                        end
-                    else
-                        logDump("decompile function not available")
-                    end
-                end
-            end
-            
-            local rs = Systems:FindFirstChild("RotatingShops")
-            if rs then
-                for _, child in ipairs(rs:GetChildren()) do
-                    logDump("Found Child of RotatingShops: " .. child:GetFullName() .. " (" .. child.ClassName .. ")")
-                    if child:IsA("ModuleScript") then
-                        local ok, ret = pcall(require, child)
-                        if ok then
-                            logDump("Require(" .. child.Name .. ") returned " .. type(ret))
-                            if type(ret) == "table" then
-                                logDump(dumpTable(ret))
-                            end
-                        else
-                            logDump("Require(" .. child.Name .. ") failed: " .. tostring(ret))
-                        end
-                        if decompile then
-                            local okDec, decBody = pcall(decompile, child)
-                            if okDec and decBody then
-                                logDump("=== DECOMPILED: " .. child.Name .. " ===")
-                                logDump(decBody)
-                                logDump("=== END DECOMPILED ===")
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        local player = game:GetService("Players").LocalPlayer
-        local pgui = player and player:FindFirstChild("PlayerGui")
-        if pgui then
-            for _, desc in ipairs(pgui:GetDescendants()) do
-                if desc:IsA("LocalScript") or desc:IsA("ModuleScript") then
-                    local path = desc:GetFullName():lower()
-                    if path:find("shop") or path:find("toko") or path:find("buy") or path:find("purchase") then
-                        logDump("Found Script in PlayerGui: " .. desc:GetFullName() .. " (" .. desc.ClassName .. ")")
-                        if decompile then
-                            local okDec, decBody = pcall(decompile, desc)
-                            if okDec and decBody then
-                                logDump("=== DECOMPILED: " .. desc.Name .. " ===")
-                                logDump(decBody)
-                                logDump("=== END DECOMPILED ===")
-                            else
-                                logDump("Decompile failed: " .. tostring(decBody))
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        if writefile then
-            writefile("SH_Shop_Decompiled.txt", table.concat(dumpOutput, "\n"))
-            debugPrint("Shop system deep inspection written to SH_Shop_Decompiled.txt")
-        else
-            debugPrint("writefile function not available to dump shop inspection")
-        end
-    end)
-end)
+-- Deep Shop System Inspection (Disabled to prevent RobloxScript require taint)
 
 -- Automatic workspace diagnostics disabled to prevent loading crash
 
@@ -950,7 +825,7 @@ local function getSortedShopCards(shopScreen)
         if child:IsA("GuiObject") then
             local hasButton = false
             for _, desc in ipairs(child:GetDescendants()) do
-                if desc:IsA("TextButton") or desc:IsA("ImageButton") then
+                if desc:IsA("GuiButton") or desc.Name:lower():find("button") or desc.Name:lower():find("btn") then
                     hasButton = true
                     break
                 end
@@ -1032,13 +907,28 @@ end
 
 local function closeShopUI(shopFrame)
     for _, child in ipairs(shopFrame:GetDescendants()) do
-        if child:IsA("TextButton") or child:IsA("ImageButton") then
-            local txt = cleanText(child.Text)
-            if txt == "x" or child.Name:lower():find("close") or child.Name:lower():find("tutup") or child.Name == "CloseBtn" or child.Name == "CloseButton" then
-                clickButton(child)
-                debugPrint("[AutoBuy] Closed Shop UI using button: " .. child.Name)
-                return true
+        local name = tostring(child.Name):lower()
+        local txt = ""
+        pcall(function()
+            if not child:IsA("ImageButton") then
+                txt = cleanText(child.Text)
             end
+        end)
+        if txt == "x" or name:find("close") or name:find("tutup") then
+            local btn = child
+            if not (btn:IsA("GuiButton")) then
+                local parent = child.Parent
+                for i = 1, 3 do
+                    if parent and parent:IsA("GuiButton") then
+                        btn = parent
+                        break
+                    end
+                    if parent then parent = parent.Parent else break end
+                end
+            end
+            clickButton(btn)
+            debugPrint("[AutoBuy] Closed Shop UI using button: " .. btn.Name)
+            return true
         end
     end
     return false
@@ -1464,29 +1354,6 @@ task.spawn(function()
         task.wait(1.5)
         if GetOption("AutoBuyShopActive", false) then
             local ok, err = pcall(function()
-                -- GUI Hierarchy Diagnostics
-                pcall(function()
-                    local dump = {}
-                    table.insert(dump, "=== PlayerGui ScreenGuis ===")
-                    for _, gui in ipairs(playerGui:GetChildren()) do
-                        if gui:IsA("ScreenGui") then
-                            table.insert(dump, string.format("ScreenGui: Name=%s, Enabled=%s", gui.Name, tostring(gui.Enabled)))
-                            if gui.Enabled then
-                                for _, desc in ipairs(gui:GetDescendants()) do
-                                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
-                                        local txt = cleanText(desc.Text)
-                                        if txt ~= "" then
-                                            local path = desc:GetFullName()
-                                            table.insert(dump, string.format("  Text: %s | Text=%q | Visible=%s | Cleaned=%q", path, desc.Text, tostring(isGuiVisible(desc)), txt))
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    writefile("SH_GUI_Diagnostics.txt", table.concat(dump, "\n"))
-                end)
-
                 local inLobby = (game.PlaceId == 117381420723145)
                 local shopTitleLabel = findShopFrame()
                 local isCurrentlyOpen = shopTitleLabel and isGuiVisible(shopTitleLabel)
@@ -1542,23 +1409,18 @@ task.spawn(function()
                     debugPrint("[AutoBuy] Found " .. #cards .. " item cards in the shop GUI.")
                     
                     for slotIndex, card in ipairs(cards) do
-                        -- Dump card identity for diagnostics
+                        -- Dump card identity for diagnostics (non-blocking)
                         pcall(function()
-                            local attrStr = ""
-                            local ok2, attrs = pcall(function() return card:GetAttributes() end)
-                            if ok2 and attrs then
-                                for k, v in pairs(attrs) do attrStr = attrStr .. k .. "=" .. tostring(v) .. "," end
-                            end
                             local valStr = ""
                             for _, sub in ipairs(card:GetDescendants()) do
                                 if sub:IsA("StringValue") or sub:IsA("IntValue") or sub:IsA("NumberValue") then
                                     valStr = valStr .. sub.Name .. "=" .. tostring(sub.Value) .. ","
                                 end
                             end
-                            debugPrint("[CardDump] slot=" .. slotIndex .. " name=" .. tostring(card.Name) .. " attrs={" .. attrStr .. "} vals={" .. valStr .. "}")
+                            debugPrint("[CardDump] slot=" .. slotIndex .. " name=" .. tostring(card.Name) .. " vals={" .. valStr .. "}")
                         end)
                         
-                        -- Use card.Name as the real slot key (game may use this as BuyItem arg)
+                        -- Use card.Name as the real slot key (game uses this as BuyItem arg)
                         local cardSlotName = tostring(card.Name)
                         
                         -- 1. Check stock
@@ -1681,18 +1543,26 @@ task.spawn(function()
                                             -- ══ Fallback click simulation to trigger UI reactions ══
                                             pcall(function()
                                                 local beliBtn = nil
+                                                -- 1st pass: find a GuiButton (TextButton/ImageButton)
                                                 for _, desc in ipairs(card:GetDescendants()) do
-                                                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") or desc:IsA("ImageButton") or desc:IsA("GuiButton") then
-                                                        local txt = desc:IsA("ImageButton") and "" or cleanText(desc.Text)
+                                                    if desc:IsA("GuiButton") then
                                                         local name = tostring(desc.Name):lower()
-                                                        if txt == "beli" or txt == "buy" or name == "beli" or name == "buy" or name:find("belibtn") or name:find("buybtn") then
-                                                            if desc:IsA("GuiButton") or desc:IsA("TextButton") or desc:IsA("ImageButton") then
-                                                                beliBtn = desc
-                                                                break
-                                                            else
+                                                        local txt = cleanText(desc:IsA("TextButton") and desc.Text or "")
+                                                        if txt == "beli" or txt == "buy" or name:find("beli") or name:find("buy") then
+                                                            beliBtn = desc
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                                -- 2nd pass: look for label containing "beli" or "buy" and ascend
+                                                if not beliBtn then
+                                                    for _, desc in ipairs(card:GetDescendants()) do
+                                                        if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                                                            local txt = cleanText(desc.Text)
+                                                            if txt == "beli" or txt == "buy" then
                                                                 local parent = desc.Parent
-                                                                for i = 1, 3 do
-                                                                    if parent and (parent:IsA("GuiButton") or parent:IsA("TextButton") or parent:IsA("ImageButton")) then
+                                                                for i = 1, 4 do
+                                                                    if parent and parent:IsA("GuiButton") then
                                                                         beliBtn = parent
                                                                         break
                                                                     end
@@ -1703,14 +1573,36 @@ task.spawn(function()
                                                         end
                                                     end
                                                 end
+                                                -- 3rd pass: look for any UI element named BuyButton or BeliButton
+                                                if not beliBtn then
+                                                    for _, desc in ipairs(card:GetDescendants()) do
+                                                        local name = tostring(desc.Name):lower()
+                                                        if name == "buybutton" or name == "belibutton" or name == "buy" or name == "beli" then
+                                                            beliBtn = desc
+                                                            break
+                                                        end
+                                                    end
+                                                end
                                                 
                                                 if beliBtn then
                                                     if firesignal then
-                                                        firesignal(beliBtn.MouseButton1Click)
+                                                        pcall(function() firesignal(beliBtn.MouseButton1Click) end)
                                                         if beliBtn:IsA("GuiButton") then
-                                                            firesignal(beliBtn.Activated)
+                                                            pcall(function() firesignal(beliBtn.Activated) end)
                                                         end
                                                     end
+                                                    pcall(function()
+                                                        if getconnections then
+                                                            for _, conn in ipairs(getconnections(beliBtn.MouseButton1Click)) do
+                                                                pcall(conn.Fire)
+                                                            end
+                                                            if beliBtn:IsA("GuiButton") then
+                                                                for _, conn in ipairs(getconnections(beliBtn.Activated)) do
+                                                                    pcall(conn.Fire)
+                                                                end
+                                                            end
+                                                        end
+                                                    end)
                                                 end
                                             end)
                                             
