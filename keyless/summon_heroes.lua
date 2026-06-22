@@ -686,7 +686,7 @@ local function findShopFrame()
     for _, gui in ipairs(playerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and gui.Enabled then
             for _, desc in ipairs(gui:GetDescendants()) do
-                if desc:IsA("TextLabel") and isGuiVisible(desc) then
+                if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
                     local text = cleanText(desc.Text)
                     if text == "toko item" or text == "item shop" then
                         return desc
@@ -698,9 +698,9 @@ local function findShopFrame()
     return nil
 end
 
-local function getSortedShopCards(shopFrame)
+local function getSortedShopCards(shopScreen)
     local grid = nil
-    for _, desc in ipairs(shopFrame:GetDescendants()) do
+    for _, desc in ipairs(shopScreen:GetDescendants()) do
         if desc:IsA("UIGridLayout") or desc:IsA("UIListLayout") then
             grid = desc
             break
@@ -709,7 +709,7 @@ local function getSortedShopCards(shopFrame)
     
     local container = grid and grid.Parent
     if not container then
-        for _, desc in ipairs(shopFrame:GetDescendants()) do
+        for _, desc in ipairs(shopScreen:GetDescendants()) do
             if desc:IsA("ScrollingFrame") then
                 container = desc
                 break
@@ -718,16 +718,36 @@ local function getSortedShopCards(shopFrame)
     end
     
     if not container then
-        local firstBtn = shopFrame:FindFirstChild("Beli", true)
-        container = firstBtn and firstBtn.Parent and firstBtn.Parent.Parent
+        -- Find parent container of card with a Beli button
+        for _, desc in ipairs(shopScreen:GetDescendants()) do
+            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                local txt = cleanText(desc.Text)
+                if txt == "beli" or txt == "buy" then
+                    local card = desc:IsA("TextButton") and desc.Parent or (desc.Parent and desc.Parent.Parent)
+                    if card and card.Parent then
+                        container = card.Parent
+                        break
+                    end
+                end
+            end
+        end
     end
     
     if not container then return {} end
     
     local cards = {}
     for _, child in ipairs(container:GetChildren()) do
-        if child:IsA("GuiObject") and (child:FindFirstChild("Beli", true) or child:FindFirstChildOfClass("TextButton") or child:FindFirstChildOfClass("ImageButton")) then
-            table.insert(cards, child)
+        if child:IsA("GuiObject") then
+            local hasButton = false
+            for _, desc in ipairs(child:GetDescendants()) do
+                if desc:IsA("TextButton") or desc:IsA("ImageButton") then
+                    hasButton = true
+                    break
+                end
+            end
+            if hasButton then
+                table.insert(cards, child)
+            end
         end
     end
     
@@ -765,25 +785,35 @@ end
 
 local function getShopPrompt()
     local best = nil
+    debugPrint("[ShopPrompt] Scanning workspace for ProximityPrompts...")
+    local promptsFound = 0
     for _, desc in ipairs(workspace:GetDescendants()) do
         if desc:IsA("ProximityPrompt") then
+            promptsFound = promptsFound + 1
             local name = tostring(desc.Name):lower()
             local obj = tostring(desc.ObjectText or ""):lower()
             local act = tostring(desc.ActionText or ""):lower()
+            debugPrint("[ShopPrompt] Found prompt: " .. desc:GetFullName() .. " | Name: " .. name .. " | Obj: " .. obj .. " | Act: " .. act)
             
+            -- High priority: exact match
             if name:find("toko item") or name:find("item shop")
                 or obj:find("toko item") or obj:find("item shop")
                 or act:find("toko item") or act:find("item shop") then
+                debugPrint("[ShopPrompt] Best prompt found (exact match): " .. desc:GetFullName())
                 return desc
             end
             
+            -- Secondary priority: item/shop/toko keywords
             if name:find("item") or obj:find("item") or act:find("item") then
                 best = desc
             elseif not best and (name:find("shop") or name:find("toko") or obj:find("shop") or obj:find("toko")) then
                 best = desc
+            elseif not best and (name:find("beli") or name:find("buy") or obj:find("beli") or obj:find("buy") or act:find("beli") or act:find("buy")) then
+                best = desc
             end
         end
     end
+    debugPrint("[ShopPrompt] Scan complete. Total prompts found: " .. promptsFound .. " | Selected best: " .. (best and best:GetFullName() or "nil"))
     return best
 end
 
@@ -1173,7 +1203,9 @@ task.spawn(function()
                         return
                     end
                     
-                    local cards = getSortedShopCards(shopFrame)
+                    local shopScreen = shopTitleLabel:FindFirstAncestorOfClass("ScreenGui") or shopFrame
+                    local cards = getSortedShopCards(shopScreen)
+                    debugPrint("[AutoBuy] Found " .. #cards .. " item cards in the shop GUI.")
                     
                     for slotIndex, card in ipairs(cards) do
                         -- 1. Check stock
@@ -1226,6 +1258,8 @@ task.spawn(function()
                                 if priceLabel then
                                     currency = getCurrencyType(priceLabel, card)
                                 end
+                                
+                                debugPrint("[AutoBuy] Slot " .. slotIndex .. ": ItemName=" .. tostring(itemName) .. " | Price=" .. price .. " | Currency=" .. currency .. " | Type=" .. tostring(itemType))
                                 
                                 -- 4. Get option key
                                 local optionKey = nil
