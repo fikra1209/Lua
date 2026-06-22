@@ -1017,6 +1017,11 @@ surSec:AddToggle("PistolCrosshair", {Title="Pistol Crosshair", Default=false, Ca
     updateCrosshair(val)
 end})
 
+local parrySec = Tabs.Survivor:AddSection("Auto Parry (Anti-Killer)")
+parrySec:AddToggle("AutoParry", {Title="⚡ Auto Parry", Default=false, Callback=autoSave})
+parrySec:AddDropdown("ParryMode", {Title="Parry Mode", Values={"Tool Activate", "Key F", "Both"}, Default="Both", Callback=autoSave})
+parrySec:AddSlider("ParryDistance", {Title="Parry Distance (studs)", Min=5, Max=25, Default=12, Rounding=0, Callback=autoSave})
+
 -- Killer Tab
 local kilSec=Tabs.Killer:AddSection("Automation")
 kilSec:AddToggle("AutoAttack",  {Title="Auto Attack Survivor", Default=false, Callback=autoSave})
@@ -1077,3 +1082,122 @@ Fluent:Notify({
     Duration=8
 })
 log("Violence District Hub v3.0 loaded successfully.")
+
+-- Loop 7: Auto Parry against Killer attacks
+task.spawn(function()
+    local lastParryTime = 0
+    local standardMovementAnimations = {
+        ["walk"] = true, ["run"] = true, ["idle"] = true, ["jump"] = true,
+        ["fall"] = true, ["strafe"] = true, ["stamina"] = true,
+        ["breathe"] = true, ["pant"] = true, ["swim"] = true, ["climb"] = true
+    }
+    
+    local function isAttackAnimation(track)
+        local name = tostring(track.Name or (track.Animation and track.Animation.Name) or ""):lower()
+        -- Skip standard animations
+        for moveName, _ in pairs(standardMovementAnimations) do
+            if name:find(moveName) then
+                return false
+            end
+        end
+        return true
+    end
+
+    while true do
+        task.wait(0.05) -- Check 20 times per second for quick reaction
+        if GetOpt("AutoParry", false) then
+            pcall(function()
+                local myChar = getChar()
+                local myHrp = getHRP()
+                if not myChar or not myHrp then return end
+                
+                -- Check cooldown to avoid spamming activate calls
+                local now = os.clock()
+                if now - lastParryTime < 2 then return end
+                
+                -- Find nearest killer
+                local nearestKiller, dist = nil, math.huge
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= player and isKiller(p) and p.Character then
+                        local kHrp = p.Character:FindFirstChild("HumanoidRootPart")
+                        if kHrp then
+                            local d = (myHrp.Position - kHrp.Position).Magnitude
+                            if d < dist then
+                                dist = d
+                                nearestKiller = p.Character
+                            end
+                        end
+                    end
+                end
+                
+                local parryDist = GetOpt("ParryDistance", 12)
+                if nearestKiller and dist <= parryDist then
+                    local humanoid = nearestKiller:FindFirstChildOfClass("Humanoid")
+                    local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+                    if animator then
+                        local attacking = false
+                        local activeAnimName = ""
+                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                            if isAttackAnimation(track) then
+                                attacking = true
+                                activeAnimName = tostring(track.Name or (track.Animation and track.Animation.Name) or "Unknown")
+                                break
+                            end
+                        end
+                        
+                        if attacking then
+                            lastParryTime = now
+                            log("Killer attack detected: " .. activeAnimName .. " at dist " .. math.round(dist) .. " studs! Triggering parry.")
+                            
+                            local mode = GetOpt("ParryMode", "Both")
+                            
+                            -- 1. Tool Activation Mode
+                            if mode == "Tool Activate" or mode == "Both" then
+                                local bp = player:FindFirstChild("Backpack")
+                                local dagger = myChar:FindFirstChild("Parrying Dagger") or myChar:FindFirstChild("ParryingDagger")
+                                if not dagger and bp then
+                                    for _, t in ipairs(bp:GetChildren()) do
+                                        if t:IsA("Tool") and (t.Name:lower():find("parry") or t.Name:lower():find("dagger") or t.Name:lower():find("tangkis")) then
+                                            dagger = t
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                -- Relaxed search for any tool if no specific parry dagger found
+                                if not dagger and bp then
+                                    for _, t in ipairs(bp:GetChildren()) do
+                                        if t:IsA("Tool") then
+                                            dagger = t
+                                            break
+                                        end
+                                    end
+                                end
+                                
+                                if dagger then
+                                    if dagger.Parent == bp then
+                                        dagger.Parent = myChar
+                                        task.wait(0.02)
+                                    end
+                                    pcall(function() dagger:Activate() end)
+                                end
+                            end
+                            
+                            -- 2. Key Press Mode
+                            if mode == "Key F" or mode == "Both" then
+                                pcall(function()
+                                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                                    task.wait(0.05)
+                                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                                end)
+                            end
+                            
+                            -- Prevent multiple triggers in the same frame
+                            task.wait(0.5)
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
