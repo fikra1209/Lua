@@ -43,11 +43,178 @@ local function debugPrint(msg)
     local text = "[Summon Heroes Bot] " .. tostring(msg)
     print(text); warn(text)
     pcall(function() if rconsoleprint then rconsoleprint(text.."\n") end end)
+    pcall(function()
+        if writefile then
+            local filename = "SH_Logs.txt"
+            if appendfile then
+                appendfile(filename, text .. "\n")
+            else
+                local content = isfile(filename) and readfile(filename) or ""
+                writefile(filename, content .. text .. "\n")
+            end
+        end
+    end)
 end
+
+-- Hook LogService to capture all Roblox console output (errors, other script prints, hook errors)
+pcall(function()
+    if writefile then
+        local LogService = game:GetService("LogService")
+        -- Initialize file with existing history
+        local history = LogService:GetLogHistory()
+        local lines = {}
+        for _, log in ipairs(history) do
+            table.insert(lines, string.format("[%s] %s", tostring(log.messageType), log.message))
+        end
+        writefile("SH_Logs.txt", "=== STARTUP LOG HISTORY ===\n" .. table.concat(lines, "\n") .. "\n=== END OF STARTUP LOG HISTORY ===\n")
+        
+        -- Listen for new messages
+        LogService.MessageOut:Connect(function(message, messageType)
+            pcall(function()
+                local logLine = string.format("[%s] %s", tostring(messageType), message)
+                if appendfile then
+                    appendfile("SH_Logs.txt", logLine .. "\n")
+                else
+                    local content = isfile("SH_Logs.txt") and readfile("SH_Logs.txt") or ""
+                    writefile("SH_Logs.txt", content .. logLine .. "\n")
+                end
+            end)
+        end)
+    end
+end)
+
 
 debugPrint("Initializing script...")
 
+-- Deep Shop System Inspection
+task.spawn(function()
+    pcall(function()
+        local function dumpTable(tb, depth)
+            depth = depth or 0
+            if depth > 4 then return "{...}" end
+            local indent = string.rep("  ", depth)
+            local s = "{\n"
+            for k, v in pairs(tb) do
+                local ks = tostring(k)
+                local vs = ""
+                if type(v) == "table" then
+                    vs = dumpTable(v, depth + 1)
+                elseif type(v) == "function" then
+                    vs = "function"
+                    local ok, info = pcall(debug.getinfo, v)
+                    if ok and info then
+                        vs = string.format("function (%s:%d)", tostring(info.source), info.linedefined)
+                    end
+                else
+                    vs = type(v) .. ":" .. tostring(v)
+                end
+                s = s .. indent .. "  " .. ks .. " = " .. vs .. ",\n"
+            end
+            s = s .. indent .. "}"
+            return s
+        end
+
+        local dumpOutput = {}
+        local function logDump(msg)
+            table.insert(dumpOutput, tostring(msg))
+        end
+
+        logDump("=== SHOP SYSTEM DEEP INSPECTION ===")
+
+        local Systems = game:GetService("ReplicatedStorage"):FindFirstChild("Systems")
+        if Systems then
+            for _, name in ipairs({"RotatingShops", "Purchase", "LimitedStock", "Items"}) do
+                local mod = Systems:FindFirstChild(name)
+                if mod and mod:IsA("ModuleScript") then
+                    logDump("Found ModuleScript: " .. mod:GetFullName())
+                    local ok, ret = pcall(require, mod)
+                    if ok then
+                        logDump("Require(" .. name .. ") returned " .. type(ret))
+                        if type(ret) == "table" then
+                            logDump(dumpTable(ret))
+                        else
+                            logDump("Value: " .. tostring(ret))
+                        end
+                    else
+                        logDump("Require(" .. name .. ") failed: " .. tostring(ret))
+                    end
+                    
+                    if decompile then
+                        local okDec, decBody = pcall(decompile, mod)
+                        if okDec and decBody then
+                            logDump("=== DECOMPILED: " .. name .. " ===")
+                            logDump(decBody)
+                            logDump("=== END DECOMPILED ===")
+                        else
+                            logDump("Decompile(" .. name .. ") failed: " .. tostring(decBody))
+                        end
+                    else
+                        logDump("decompile function not available")
+                    end
+                end
+            end
+            
+            local rs = Systems:FindFirstChild("RotatingShops")
+            if rs then
+                for _, child in ipairs(rs:GetChildren()) do
+                    logDump("Found Child of RotatingShops: " .. child:GetFullName() .. " (" .. child.ClassName .. ")")
+                    if child:IsA("ModuleScript") then
+                        local ok, ret = pcall(require, child)
+                        if ok then
+                            logDump("Require(" .. child.Name .. ") returned " .. type(ret))
+                            if type(ret) == "table" then
+                                logDump(dumpTable(ret))
+                            end
+                        else
+                            logDump("Require(" .. child.Name .. ") failed: " .. tostring(ret))
+                        end
+                        if decompile then
+                            local okDec, decBody = pcall(decompile, child)
+                            if okDec and decBody then
+                                logDump("=== DECOMPILED: " .. child.Name .. " ===")
+                                logDump(decBody)
+                                logDump("=== END DECOMPILED ===")
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local player = game:GetService("Players").LocalPlayer
+        local pgui = player and player:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, desc in ipairs(pgui:GetDescendants()) do
+                if desc:IsA("LocalScript") or desc:IsA("ModuleScript") then
+                    local path = desc:GetFullName():lower()
+                    if path:find("shop") or path:find("toko") or path:find("buy") or path:find("purchase") then
+                        logDump("Found Script in PlayerGui: " .. desc:GetFullName() .. " (" .. desc.ClassName .. ")")
+                        if decompile then
+                            local okDec, decBody = pcall(decompile, desc)
+                            if okDec and decBody then
+                                logDump("=== DECOMPILED: " .. desc.Name .. " ===")
+                                logDump(decBody)
+                                logDump("=== END DECOMPILED ===")
+                            else
+                                logDump("Decompile failed: " .. tostring(decBody))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if writefile then
+            writefile("SH_Shop_Decompiled.txt", table.concat(dumpOutput, "\n"))
+            debugPrint("Shop system deep inspection written to SH_Shop_Decompiled.txt")
+        else
+            debugPrint("writefile function not available to dump shop inspection")
+        end
+    end)
+end)
+
 -- Automatic workspace diagnostics disabled to prevent loading crash
+
 
 -- ─── Self-Healing HttpGet Library Loader ─────────────────────────────────────
 local function httpGet(url)
