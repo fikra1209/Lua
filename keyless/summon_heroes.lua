@@ -1690,8 +1690,6 @@ task.spawn(function()
                                             task.wait(0.3)
                                             autoConfirmPurchase()
                                         end
-
-                                        end
                                     end
                                 end
                             end
