@@ -1432,7 +1432,39 @@ task.spawn(function()
                                                 local R = ReplicatedStorage:FindFirstChild("Remotes")
                                                 local slotNum = tonumber(cardSlotName) or slotIndex
                                                 
-                                                -- ══ Step 1: conn:Fire() ══
+                                                -- ══ Step 1: GuiButton.InputBegan simulation (Roblox input pipeline) ══
+                                                -- Fires MouseButton1 through the button's OWN input signal,
+                                                -- which triggers Activated in game's LocalScript context
+                                                pcall(function()
+                                                    local io1 = Instance.new("InputObject")
+                                                    io1.UserInputType = Enum.UserInputType.MouseButton1
+                                                    io1.UserInputState = Enum.UserInputState.Begin
+                                                    io1.Position = Vector3.new(
+                                                        beliBtn.AbsolutePosition.X + beliBtn.AbsoluteSize.X * 0.5,
+                                                        beliBtn.AbsolutePosition.Y + beliBtn.AbsoluteSize.Y * 0.5,
+                                                        0)
+                                                    local io2 = Instance.new("InputObject")
+                                                    io2.UserInputType = Enum.UserInputType.MouseButton1
+                                                    io2.UserInputState = Enum.UserInputState.End
+                                                    io2.Position = io1.Position
+                                                    
+                                                    if firesignal then
+                                                        -- Fire on the button itself (triggers Activated pipeline)
+                                                        debugPrint("[AutoBuy] firesignal InputBegan on " .. beliBtn.Name)
+                                                        firesignal(beliBtn.InputBegan, io1)
+                                                        task.wait(0.08)
+                                                        firesignal(beliBtn.InputEnded, io2)
+                                                        task.wait(0.05)
+                                                        -- Also fire on UserInputService (game-level)
+                                                        local UIS = game:GetService("UserInputService")
+                                                        firesignal(UIS.InputBegan, io1, false)
+                                                        task.wait(0.08)
+                                                        firesignal(UIS.InputEnded, io2, false)
+                                                    end
+                                                end)
+                                                task.wait(0.2)
+                                                
+                                                -- ══ Step 2: conn:Fire() ══
                                                 pcall(function()
                                                     if getconnections then
                                                         for _, target in ipairs({beliBtn, beliBtn.Parent}) do
@@ -1450,7 +1482,7 @@ task.spawn(function()
                                                 end)
                                                 task.wait(0.15)
                                                 
-                                                -- ══ Step 2: TraitReroll — use dedicated BuyTraitReroll remote ══
+                                                -- ══ Step 3: TraitReroll dedicated remote ══
                                                 if itemType == "TraitReroll" then
                                                     pcall(function()
                                                         local BTR = R and R:FindFirstChild("BuyTraitReroll")
@@ -1459,41 +1491,34 @@ task.spawn(function()
                                                             pcall(function() BTR:InvokeServer(slotNum) end)
                                                             task.wait(0.05)
                                                             pcall(function() BTR:InvokeServer(slotNum - 1) end)
-                                                            task.wait(0.05)
-                                                            pcall(function() BTR:InvokeServer(cardSlotName) end)
                                                         end
                                                         local RA = R and R:FindFirstChild("RerollAction")
                                                         if RA then
-                                                            debugPrint("[AutoBuy] RerollAction slot=" .. slotNum)
                                                             pcall(function() RA:InvokeServer(slotNum) end)
-                                                            task.wait(0.05)
-                                                            pcall(function() RA:InvokeServer(slotNum - 1) end)
                                                         end
                                                     end)
                                                     task.wait(0.1)
                                                 end
                                                 
-                                                -- ══ Step 3: BuyDirect — PRIMARY for rotating shop ══
+                                                -- ══ Step 4: BuyDirect ══
                                                 pcall(function()
                                                     local BD = R and R:FindFirstChild("BuyDirect")
                                                     if BD then
-                                                        debugPrint("[AutoBuy] BuyDirect slot=" .. slotNum .. " itemType=" .. (itemType or "?"))
+                                                        debugPrint("[AutoBuy] BuyDirect slot=" .. slotNum)
                                                         BD:FireServer(slotNum)
                                                         task.wait(0.05)
                                                         BD:FireServer(slotNum - 1)
                                                         task.wait(0.05)
                                                         BD:FireServer(cardSlotName)
                                                         task.wait(0.05)
-                                                        -- Also try with item type key
-                                                        local keyPascal = itemName:gsub("%s+", "")
-                                                        BD:FireServer(keyPascal)
+                                                        BD:FireServer(itemName:gsub("%s+", ""))
                                                         task.wait(0.05)
-                                                        BD:FireServer(itemType or keyPascal)
+                                                        BD:FireServer(itemType)
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- ══ Step 4: BuyItem fallback ══
+                                                -- ══ Step 5: BuyItem fallback ══
                                                 pcall(function()
                                                     local BI = R and R:FindFirstChild("BuyItem")
                                                     if BI then
@@ -1501,16 +1526,15 @@ task.spawn(function()
                                                         BI:FireServer(slotNum)
                                                         task.wait(0.05)
                                                         BI:FireServer(slotNum - 1)
-                                                        task.wait(0.05)
-                                                        BI:FireServer(itemName:gsub("%s+", ""))
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- ══ Step 5: firesignal ══
+                                                -- ══ Step 6: firesignal Activated directly ══
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
+                                                        task.wait(0.05)
                                                         if beliBtn:IsA("GuiButton") then
                                                             firesignal(beliBtn.Activated)
                                                         end
