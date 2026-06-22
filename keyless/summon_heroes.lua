@@ -679,7 +679,7 @@ local function matchItemType(itemName)
         return nil
     end
     -- Check if it is a number (price label)
-    if tonumber(name:gsub("%D", "")) ~= nil then
+    if tonumber((name:gsub("%D", ""))) ~= nil then
         if name:gsub("%s", ""):match("^%d+$") then
             return nil
         end
