@@ -12,6 +12,24 @@
 
 if game.GameId ~= 6739698191 and game.PlaceId ~= 93978595733734 then return end
 
+_G.VD_Script_Id = (type(_G.VD_Script_Id) == "number" and _G.VD_Script_Id or 0) + 1
+local thisScriptId = _G.VD_Script_Id
+
+if _G.VD_Connections then
+    for _, conn in ipairs(_G.VD_Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(_G.VD_Connections)
+else
+    _G.VD_Connections = {}
+end
+
+local function safeConnect(signal, callback)
+    local conn = signal:Connect(callback)
+    table.insert(_G.VD_Connections, conn)
+    return conn
+end
+
 -- ─── Services ────────────────────────────────────────────────────────────────
 local Players             = game:GetService("Players")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
@@ -32,6 +50,15 @@ local function log(msg)
     pcall(function() if rconsoleprint then rconsoleprint(t.."\n") end end)
 end
 log("Loading Violence District Hub v3.0...")
+
+local function clearOldESP()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "VD_ESP" or obj.Name == "VD_Highlight" then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+end
+pcall(clearOldESP)
 
 -- ─── Library Loader ───────────────────────────────────────────────────────────
 local function httpGet(url)
@@ -202,7 +229,7 @@ pcall(function()
     btn.InputChanged:Connect(function(i)
         if i.UserInputType==Enum.UserInputType.MouseMovement then dragInput=i end
     end)
-    UIS.InputChanged:Connect(function(i)
+    safeConnect(UIS.InputChanged, function(i)
         if i==dragInput and dragging then
             local d=i.Position-dragStart
             btn.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
@@ -338,27 +365,92 @@ end
 -- ─── Killer Detection ─────────────────────────────────────────────────────────
 local killerCharacterCache = nil
 
-local function isKiller(p)
-    if not p or p==player then return false end
-    local char=p.Character; if not char then return false end
-    for _,v in ipairs(char:GetDescendants()) do
-        if v:IsA("Light") and (v.Color==Color3.fromRGB(255,0,0) or v.Color==Color3.fromRGB(200,0,0)) then return true end
+local function isKillerChar(char)
+    if not char or char == player.Character then return false end
+    
+    -- Check by team if available
+    local p = Players:GetPlayerFromCharacter(char)
+    if p then
+        if p.Team then
+            local teamName = p.Team.Name:lower()
+            if teamName:find("killer") or teamName:find("cure") or teamName:find("hunter") or teamName:find("monster") or teamName:find("beast") then
+                return true
+            elseif teamName:find("survivor") or teamName:find("player") or teamName:find("civilian") then
+                return false
+            end
+        end
+        
+        -- Check attributes
+        local role = p:GetAttribute("Role") or p:GetAttribute("role") or p:GetAttribute("Rank") or p:GetAttribute("Type")
+        if role then
+            local rStr = tostring(role):lower()
+            if rStr:find("killer") or rStr:find("cure") or rStr:find("monster") then return true end
+            if rStr:find("survivor") or rStr:find("player") then return false end
+        end
+        
+        -- Check child objects
+        local roleVal = p:FindFirstChild("Role") or p:FindFirstChild("role") or p:FindFirstChild("IsKiller")
+        if roleVal then
+            local rStr = tostring(roleVal.ClassName == "ValueBase" and roleVal.Value or roleVal.Name):lower()
+            if rStr:find("killer") or rStr == "true" or rStr:find("cure") or rStr:find("monster") then return true end
+            if rStr:find("survivor") or rStr == "false" then return false end
+        end
     end
-    if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") or char:FindFirstChild("Bat") then return true end
+    
+    -- Check for red lights (common indicator for Killers in DBD games)
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("Light") and (v.Color == Color3.fromRGB(255,0,0) or v.Color == Color3.fromRGB(200,0,0)) then return true end
+    end
+    
+    -- Check for weapon tools (excluding survivor tools)
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and not (item.Name:lower():find("parry") or item.Name:lower():find("dagger") or item.Name:lower():find("tangkis") or item.Name:lower():find("flashlight") or item.Name:lower():find("medkit") or item.Name:lower():find("pill") or item.Name:lower():find("coke") or item.Name:lower():find("pistol")) then
+            return true
+        end
+    end
+    
+    -- Check if model name itself contains "killer" or specific names
+    local name = char.Name:lower()
+    if name:find("killer") or name:find("cure") or name:find("beast") or name:find("monster") then
+        return true
+    end
+    
+    -- Check for weapon names directly in character
+    if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") or char:FindFirstChild("Bat") then
+        return true
+    end
+    
     return false
+end
+
+local function isKiller(p)
+    if not p or p == player then return false end
+    return p.Character and isKillerChar(p.Character) or false
 end
 
 local function getKillerChar()
     if killerCharacterCache and killerCharacterCache.Parent then
         return killerCharacterCache
     end
-    -- Fallback scan if cache is empty
+    
+    -- 1. Scan players first
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and isKiller(p) then
+        if p ~= player and p.Character and isKillerChar(p.Character) then
             killerCharacterCache = p.Character
             return p.Character
         end
     end
+    
+    -- 2. Scan workspace for NPC Killers
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Model") and child ~= player.Character and child:FindFirstChildOfClass("Humanoid") then
+            if isKillerChar(child) then
+                killerCharacterCache = child
+                return child
+            end
+        end
+    end
+    
     return nil
 end
 
@@ -405,6 +497,7 @@ local function addESP(inst, color, label, espType)
     if not bp then return end -- Abaikan jika tidak ada part sama sekali
     
     local hi=Instance.new("Highlight")
+    hi.Name="VD_Highlight"
     hi.Parent=inst; hi.FillColor=color; hi.OutlineColor=Color3.new(1,1,1)
     hi.FillTransparency=0.6; hi.OutlineTransparency=0.1
     hi.Enabled = false -- Default mati sampai loop update menyalakan
@@ -431,6 +524,7 @@ end
 -- Update label jarak setiap frame
 task.spawn(function()
     while task.wait(0.2) do
+        if _G.VD_Script_Id ~= thisScriptId then break end
         pcall(function()
             local hrp = getHRP()
             for inst, d in pairs(espData) do
@@ -466,11 +560,29 @@ task.spawn(function()
     end
 end)
 
+local function isCharacterPart(obj)
+    -- 1. Check if it's a descendant of any player character
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character and obj:IsDescendantOf(p.Character) then
+            return true
+        end
+    end
+    -- 2. Check if it has a Humanoid/HumanoidRootPart ancestor
+    local current = obj
+    while current and current ~= workspace do
+        if current:IsA("Model") and (current:FindFirstChildOfClass("Humanoid") or current:FindFirstChild("HumanoidRootPart")) then
+            return true
+        end
+        current = current.Parent
+    end
+    return false
+end
+
 -- ─── ESP Object Detection ─────────────────────────────────────────────────────
 local function classifyByName(name)
     local n = name:lower()
-    -- Gunakan pola yang spesifik agar tidak salah deteksi bagian bangunan
-    if n:find("^cabinet_%d+") or n:find("^generator_%d+") or n == "generator" or n == "mesin" then
+    -- Broad yet precise matching to support all generator names while excluding decorative gen parts
+    if n:find("generator") or n == "gen" or n:match("^gen%s*%d") or n:match("^gen_%d") or n:match("^gen-%d") or n:find("mesin") then
         return "Generator", Color3.fromRGB(0, 180, 255), "Generator"
     elseif n:find("pallet") or n:find("plank") then
         return "Pallet", Color3.fromRGB(230, 180, 50), "Pallet"
@@ -480,15 +592,46 @@ local function classifyByName(name)
     return nil, nil, nil
 end
 
--- Scan ke seluruh workspace tapi HANYA untuk Model dengan nama yang sangat spesifik
+local function getInteractableOwner(obj)
+    if not obj or obj == workspace then return nil end
+    local current = obj
+    local ownerModel = nil
+    while current and current ~= workspace do
+        if current:IsA("Model") then
+            if isCharacterPart(current) then
+                return nil
+            end
+            ownerModel = current
+        end
+        current = current.Parent
+    end
+    return ownerModel or obj
+end
+
+-- Scan ke seluruh workspace tapi HANYA untuk Model/BasePart dengan nama yang sangat spesifik
 local function scanInterractables()
-    local folder = workspace:FindFirstChild("Interractables")
-    local target = folder and folder:GetDescendants() or workspace:GetDescendants()
+    local target = workspace:GetDescendants()
+    local genDiagnosticsPrinted = 0
     for _, obj in ipairs(target) do
-        if obj:IsA("Model") then
-            local label, color, espType = classifyByName(obj.Name)
-            if label then
-                addESP(obj, color, label, espType)
+        if (obj:IsA("Model") or obj:IsA("BasePart")) and not isCharacterPart(obj) then
+            local owner = getInteractableOwner(obj)
+            if owner then
+                if espData[owner] then
+                    continue
+                end
+                
+                local label, color, espType = classifyByName(owner.Name)
+                if not label then
+                    label, color, espType = classifyByName(obj.Name)
+                end
+                
+                if label then
+                    if label == "Generator" and genDiagnosticsPrinted < 10 then
+                        genDiagnosticsPrinted = genDiagnosticsPrinted + 1
+                        log("[Gen Diagnostics] Found generator at: " .. owner:GetFullName())
+                    end
+                    addESP(owner, color, label, espType)
+                end
             end
         end
     end
@@ -545,39 +688,50 @@ end
 
 -- Hook DescendantAdded di workspace/Interractables untuk objek yang spawn saat match mulai
 local function hookInterractables()
-    local folder = workspace:FindFirstChild("Interractables")
-    local container = folder or workspace
-    container.DescendantAdded:Connect(function(obj)
-        if obj:IsA("Model") then
+    safeConnect(workspace.DescendantAdded, function(obj)
+        if (obj:IsA("Model") or obj:IsA("BasePart")) and not isCharacterPart(obj) then
             task.wait(0.3)
-            local label, color, espType = classifyByName(obj.Name)
-            if label then
-                addESP(obj, color, label, espType)
-                log("ESP+: " .. obj.Name .. " => " .. label)
+            if not obj or not obj.Parent or isCharacterPart(obj) then return end
+            
+            local owner = getInteractableOwner(obj)
+            if owner then
+                if espData[owner] then return end
+                
+                local label, color, espType = classifyByName(owner.Name)
+                if not label then
+                    label, color, espType = classifyByName(obj.Name)
+                end
+                
+                if label then
+                    addESP(owner, color, label, espType)
+                    log("ESP+: " .. owner.Name .. " => " .. label)
+                end
             end
         end
     end)
     scanInterractables()
 end
 
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function(char)
+safeConnect(Players.PlayerAdded, function(p)
+    safeConnect(p.CharacterAdded, function(char)
         task.wait(1.5)
         if isKiller(p) then addESP(char, Color3.fromRGB(255, 0, 0), "KILLER", "Killer")
         else addESP(char, Color3.fromRGB(220, 220, 220), p.DisplayName or p.Name, "Survivor") end
     end)
 end)
-Players.PlayerRemoving:Connect(function(p)
+safeConnect(Players.PlayerRemoving, function(p)
     if p.Character then removeESP(p.Character) end
 end)
 
 task.spawn(function()
     task.wait(3)
+    if _G.VD_Script_Id ~= thisScriptId then return end
     hookInterractables()
     scanPlayers()
     -- Rescan setiap 2 detik agar tidak ketinggalan objek yang spawn terlambat
     while true do
         task.wait(2)
+        if _G.VD_Script_Id ~= thisScriptId then break end
         pcall(scanPlayers)
     end
 end)
@@ -594,19 +748,42 @@ end
 -- ─── Auto Repair ──────────────────────────────────────────────────────────────
 -- Game menggunakan sistem interaksi custom (bukan ProximityPrompt standar).
 -- Solusi: tahan tombol E terus-menerus.
+_G.IsRepairingState = false
 task.spawn(function()
     local holding = false
     while true do
         task.wait(0.05)
-        if GetOpt("AutoRepair", false) then
+        if _G.VD_Script_Id ~= thisScriptId then break end
+        
+        -- Check if we should pause repair because Killer is nearby (always pause if auto parry is on to be ready)
+        local pauseForKiller = false
+        if GetOpt("AutoParry", false) then
+            local nearestKiller = getKillerChar()
+            if nearestKiller then
+                local myHrp = getHRP()
+                local kHrp = nearestKiller:FindFirstChild("HumanoidRootPart")
+                if myHrp and kHrp then
+                    local dist = (myHrp.Position - kHrp.Position).Magnitude
+                    local parryDist = GetOpt("ParryDistance", 12)
+                    local preEquipDist = parryDist + 8 -- e.g. 20 studs
+                    if dist <= preEquipDist then
+                        pauseForKiller = true
+                    end
+                end
+            end
+        end
+        
+        if GetOpt("AutoRepair", false) and not _G.IsParrying and not pauseForKiller then
             if not holding then
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
                 holding = true
+                _G.IsRepairingState = true
             end
         else
             if holding then
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
                 holding = false
+                _G.IsRepairingState = false
             end
         end
     end
@@ -784,6 +961,7 @@ end
 
 task.spawn(function()
     while task.wait(0.3) do
+        if _G.VD_Script_Id ~= thisScriptId then break end
         if GetOpt("AutoAttack",false) and isLocalPlayerKiller() then
             pcall(function()
                 local hrp=getHRP(); if not hrp then return end
@@ -823,7 +1001,7 @@ local function updateSpeed(val)
     end)
 end
 
-RunService.PreSimulation:Connect(function()
+safeConnect(RunService.PreSimulation, function()
     local enabled = GetOpt("SpeedToggle", false)
     if enabled then
         local hum = getHum()
@@ -846,7 +1024,7 @@ RunService.PreSimulation:Connect(function()
 end)
 
 local wasNoclip = false
-RunService.Stepped:Connect(function()
+safeConnect(RunService.Stepped, function()
     local isNoclip = GetOpt("Noclip", false)
     if isNoclip then
         wasNoclip = true
@@ -889,6 +1067,8 @@ local function performDash(direction, speed, duration)
         local oldSpeedToggle = GetOpt("SpeedToggle", false)
         local oldSpeedSlider = GetOpt("SpeedSlider", 16)
         
+        local speedToggle = Fluent.Options.SpeedToggle
+        local speedSlider = Fluent.Options.SpeedSlider
         if speedToggle and speedSlider then
             speedToggle:SetValue(true)
             speedSlider:SetValue(speed)
@@ -928,6 +1108,7 @@ end
 task.spawn(function()
     local lastAutoJukeTime = 0
     while task.wait(0.05) do
+        if _G.VD_Script_Id ~= thisScriptId then break end
         if GetOpt("AutoJuke", false) then
             pcall(function()
                 local myHrp = getHRP()
@@ -935,7 +1116,6 @@ task.spawn(function()
                 local kHrp = killerChar and killerChar:FindFirstChild("HumanoidRootPart")
                 if myHrp and kHrp then
                     local dist = (myHrp.Position - kHrp.Position).Magnitude
-                    -- Jarak 1 meter (sekitar 5.5 studs)
                     if dist <= 5.5 then
                         local now = os.clock()
                         if now - lastAutoJukeTime > 2 then
@@ -954,10 +1134,12 @@ task.spawn(function()
                                         Fluent:Notify({Title="Auto Gocek!", Content="Lari menghindar dari Killer!", Duration=2})
                                     end
                                 end
-                            elseif mode == "Behind Killer" then
-                                myHrp.CFrame = kHrp.CFrame * CFrame.new(0, 0, 8)
-                                Fluent:Notify({Title="Auto Gocek!", Content="Mencoba menghindar ke belakang Killer!", Duration=2})
-                            elseif mode == "Nearest Pallet" then
+                            elseif mode == "Teleport Behind" then
+                                local targetCF = kHrp.CFrame * CFrame.new(0, 0, 4) -- 4 studs di belakang Killer
+                                targetCF = CFrame.new(targetCF.Position, kHrp.Position)
+                                myHrp.CFrame = targetCF
+                                Fluent:Notify({Title="Auto Gocek!", Content="Teleport ke belakang Killer!", Duration=2})
+                            elseif mode == "Teleport to Pallet" then
                                 local pallet = getNearestPallet()
                                 if pallet then
                                     myHrp.CFrame = pallet.CFrame + Vector3.new(0, 3, 0)
@@ -1045,6 +1227,7 @@ local parrySec = Tabs.Survivor:AddSection("Auto Parry (Anti-Killer)")
 parrySec:AddToggle("AutoParry", {Title="⚡ Auto Parry", Default=false, Callback=autoSave})
 parrySec:AddDropdown("ParryMode", {Title="Parry Mode", Values={"Tool Activate", "Key F", "Both"}, Default="Both", Callback=autoSave})
 parrySec:AddSlider("ParryDistance", {Title="Parry Distance (studs)", Min=5, Max=25, Default=12, Rounding=0, Callback=autoSave})
+parrySec:AddSlider("ParryDelay", {Title="Parry Delay (seconds)", Min=0, Max=0.8, Default=0.0, Rounding=2, Callback=autoSave})
 
 -- Killer Tab
 local kilSec=Tabs.Killer:AddSection("Automation")
@@ -1113,78 +1296,287 @@ task.spawn(function()
     local standardMovementAnimations = {
         ["walk"] = true, ["run"] = true, ["idle"] = true, ["jump"] = true,
         ["fall"] = true, ["strafe"] = true, ["stamina"] = true,
-        ["breathe"] = true, ["pant"] = true, ["swim"] = true, ["climb"] = true
+        ["breathe"] = true, ["pant"] = true, ["swim"] = true, ["climb"] = true,
+        ["hold"] = true, ["stance"] = true, ["pose"] = true, ["equip"] = true,
+        ["chase"] = true, ["carry"] = true, ["pick"] = true, ["drop"] = true,
+        ["hook"] = true, ["inspect"] = true, ["turn"] = true, ["rotate"] = true,
+        ["walkanim"] = true, ["runanim"] = true, ["idleanim"] = true, ["breatheanim"] = true, ["pantanim"] = true
     }
+    
+    local lastAnimLogTimes = {}
+    local function logAnimDebug(track)
+        local now = os.clock()
+        local name = tostring(track.Name or (track.Animation and track.Animation.Name) or "unknown"):lower()
+        local id = tostring(track.Animation and track.Animation.AnimationId or "nil")
+        local key = name .. "_" .. id .. "_" .. tostring(track.Length)
+        if not lastAnimLogTimes[key] or now - lastAnimLogTimes[key] > 3 then
+            lastAnimLogTimes[key] = now
+            log("[Anim Debug] Name: " .. name .. " | ID: " .. id .. " | Length: " .. tostring(track.Length) .. " | Looped: " .. tostring(track.Looped))
+        end
+    end
     
     local function isAttackAnimation(track)
         local name = tostring(track.Name or (track.Animation and track.Animation.Name) or ""):lower()
+        
+        -- Explicit keywords that are 100% attack animations
+        if name:find("attack") or name:find("swing") or name:find("slash") or name:find("hit") or name:find("strike") or name:find("chop") or name:find("m1") or name:find("stab") then
+            return true
+        end
+        
         -- Skip standard animations
         for moveName, _ in pairs(standardMovementAnimations) do
             if name:find(moveName) then
                 return false
             end
         end
+        
+        -- If it is a generic name (like "animation", empty, "anim", "track", "clip", "unknown")
+        -- limit the length to valid attack animation range (0.15s to 2.2s) and ensure it's not looped
+        if (name == "animation" or name == "anim" or name == "track" or name == "clip" or name == "" or name == "unknown") then
+            if track.Length < 0.15 or track.Length > 2.2 then
+                return false
+            end
+        end
+        
+        -- Movement/idle/breathe are always looped, while one-shot attacks are not
+        if track.Looped then
+            return false
+        end
+        
         return true
     end
 
-    while true do
-        task.wait(0.05) -- Check 20 times per second for quick reaction
-        if GetOpt("AutoParry", false) then
-            pcall(function()
-                local myChar = getChar()
-                local myHrp = getHRP()
-                if not myChar or not myHrp then return end
-                
-                -- Check cooldown to avoid spamming activate calls
-                local now = os.clock()
-                if now - lastParryTime < 2 then return end
-                
-                -- Find nearest killer
-                local nearestKiller = getKillerChar()
-                local dist = math.huge
-                if nearestKiller then
-                    local kHrp = nearestKiller:FindFirstChild("HumanoidRootPart")
-                    if kHrp then
-                        dist = (myHrp.Position - kHrp.Position).Magnitude
+    local function fireWeaponRemotes(dagger)
+        pcall(function()
+            for _, v in ipairs(dagger:GetDescendants()) do
+                if v:IsA("RemoteEvent") then
+                    log("Firing tool RemoteEvent: " .. v.Name)
+                    v:FireServer()
+                elseif v:IsA("RemoteFunction") then
+                    log("Invoking tool RemoteFunction: " .. v.Name)
+                    task.spawn(function() v:InvokeServer() end)
+                end
+            end
+        end)
+    end
+
+    local function findDagger()
+        local myChar = getChar()
+        if not myChar then return nil end
+        
+        -- 1. Search in Character first (already equipped)
+        for _, t in ipairs(myChar:GetChildren()) do
+            if t:IsA("Tool") then
+                local n = t.Name:lower()
+                if n:find("parry") or n:find("dagger") or n:find("tangkis") or n:find("belati") or n:find("pisau") or n:find("blokir") or n:find("block") then
+                    return t
+                end
+            end
+        end
+        
+        -- 2. Search in Backpack (unequipped)
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") then
+                    local n = t.Name:lower()
+                    if n:find("parry") or n:find("dagger") or n:find("tangkis") or n:find("belati") or n:find("pisau") or n:find("blokir") or n:find("block") then
+                        return t
                     end
                 end
+            end
+        end
+        
+        -- Diagnostics: log all tools in inventory if not found
+        local tools = {}
+        for _, t in ipairs(myChar:GetChildren()) do
+            if t:IsA("Tool") then table.insert(tools, "[Char] " .. t.Name) end
+        end
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") then table.insert(tools, "[Backpack] " .. t.Name) end
+            end
+        end
+        if #tools > 0 then
+            log("Dagger search failed. Tools in inventory: " .. table.concat(tools, ", "))
+        end
+        
+        return nil
+    end
+
+    local function findParryButton()
+        local found = nil
+        pcall(function()
+            for _, gui in ipairs(playerGui:GetDescendants()) do
+                if gui:IsA("GuiButton") and gui.Visible then
+                    local name = gui.Name:lower()
+                    local text = (gui:IsA("TextButton") and gui.Text or ""):lower()
+                    if name:find("parry") or name:find("tangkis") or name:find("block") or name:find("dagger") or
+                       text:find("parry") or text:find("tangkis") or text:find("block") or text:find("dagger") then
+                        found = gui
+                        break
+                    end
+                    if gui:IsA("ImageButton") then
+                        local img = tostring(gui.Image):lower()
+                        if img:find("parry") or img:find("dagger") or img:find("shield") or img:find("tangkis") then
+                            found = gui
+                            break
+                        end
+                    end
+                end
+            end
+        end)
+        return found
+    end
+
+    local function triggerParryButton()
+        local btn = findParryButton()
+        if btn then
+            local absolutePosition = btn.AbsolutePosition
+            local absoluteSize = btn.AbsoluteSize
+            local clicked = false
+            if firesignal then
+                pcall(function()
+                    firesignal(btn.MouseButton1Click)
+                    firesignal(btn.Activated)
+                    clicked = true
+                end)
+            end
+            if not clicked then
+                pcall(function()
+                    local x = absolutePosition.X + absoluteSize.X / 2
+                    local y = absolutePosition.Y + absoluteSize.Y / 2
+                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                    task.wait(0.01)
+                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                end)
+            end
+            return true
+        end
+        return false
+    end
+
+    -- Run auto-parry on Heartbeat for zero frame latency check
+    safeConnect(RunService.Heartbeat, function()
+        if _G.VD_Script_Id ~= thisScriptId then return end
+        if not GetOpt("AutoParry", false) then return end
+        if _G.IsParrying then return end
+        
+        -- Check cooldown to avoid spamming activate calls
+        local now = os.clock()
+        if now - lastParryTime < 2 then return end
+        
+        local ok, err = pcall(function()
+            local myChar = getChar()
+            local myHrp = getHRP()
+            if not myChar or not myHrp then return end
+            
+            -- Find nearest killer
+            local nearestKiller = getKillerChar()
+            local dist = math.huge
+            if nearestKiller then
+                local kHrp = nearestKiller:FindFirstChild("HumanoidRootPart")
+                if kHrp then
+                    dist = (myHrp.Position - kHrp.Position).Magnitude
+                end
+            end
+            
+            -- Pre-equip Parrying Dagger if Killer is close (e.g. ParryDistance + 8 studs)
+            local parryDist = GetOpt("ParryDistance", 12)
+            local preEquipDist = parryDist + 8
+            if nearestKiller and dist <= preEquipDist then
+                local bp = player:FindFirstChild("Backpack")
+                local dagger = findDagger()
+                if dagger and dagger.Parent == bp then
+                    local hum = getHum()
+                    if hum then
+                        pcall(function() hum:EquipTool(dagger) end)
+                        pcall(function() dagger.Parent = myChar end)
+                    end
+                end
+            end
+            
+            if nearestKiller and dist <= parryDist then
+                local humanoid = nearestKiller:FindFirstChildOfClass("Humanoid")
+                local animator = (humanoid and humanoid:FindFirstChildOfClass("Animator")) or nearestKiller:FindFirstChildOfClass("Animator")
                 
-                local parryDist = GetOpt("ParryDistance", 12)
-                if nearestKiller and dist <= parryDist then
-                    local humanoid = nearestKiller:FindFirstChildOfClass("Humanoid")
-                    local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-                    if animator then
-                        local attacking = false
-                        local activeAnimName = ""
-                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                            if isAttackAnimation(track) then
-                                attacking = true
-                                activeAnimName = tostring(track.Name or (track.Animation and track.Animation.Name) or "Unknown")
-                                break
+                local tracks = {}
+                if animator then
+                    pcall(function() tracks = animator:GetPlayingAnimationTracks() end)
+                end
+                if (not tracks or #tracks == 0) and humanoid then
+                    pcall(function() tracks = humanoid:GetPlayingAnimationTracks() end)
+                end
+                
+                if tracks and #tracks > 0 then
+                    local attacking = false
+                    local activeAnimName = ""
+                    for _, track in ipairs(tracks) do
+                        logAnimDebug(track)
+                        if isAttackAnimation(track) then
+                            attacking = true
+                            activeAnimName = tostring(track.Name or (track.Animation and track.Animation.Name) or "unknown")
+                            break
+                        end
+                    end
+                    
+                    if attacking then
+                        lastParryTime = now
+                        log("Killer attack detected: " .. activeAnimName .. " at dist " .. math.round(dist) .. " studs! Triggering parry.")
+                        
+                        -- Rotate character to face the Killer (crucial for directional parry mechanics)
+                        local myHrp = getHRP()
+                        local kHrp = nearestKiller:FindFirstChild("HumanoidRootPart")
+                        if myHrp and kHrp then
+                            pcall(function()
+                                myHrp.CFrame = CFrame.new(myHrp.Position, Vector3.new(kHrp.Position.X, myHrp.Position.Y, kHrp.Position.Z))
+                            end)
+                        end
+                        
+                        -- Start prep phase immediately
+                        _G.IsParrying = true
+                        local prepStart = os.clock()
+                        
+                        -- 1. Release E (AutoRepair)
+                        local wasRepairing = _G.IsRepairingState
+                        if wasRepairing then
+                            pcall(function()
+                                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                            end)
+                            task.wait(0.08)
+                        end
+                        
+                        -- Double check weapon equip state (force equip to bypass interaction state locks)
+                        local dagger = findDagger()
+                        if dagger then
+                            if dagger.Parent ~= myChar then
+                                local hum = getHum()
+                                if hum then
+                                    pcall(function() hum:EquipTool(dagger) end)
+                                end
+                                pcall(function() dagger.Parent = myChar end)
+                                task.wait(0.05) -- Only wait if we actually had to equip it now
                             end
                         end
                         
-                        if attacking then
-                            lastParryTime = now
-                            log("Killer attack detected: " .. activeAnimName .. " at dist " .. math.round(dist) .. " studs! Triggering parry.")
+                        -- Calculate remaining delay based on customizable ParryDelay slider
+                        local elapsed = os.clock() - prepStart
+                        local targetDelay = GetOpt("ParryDelay", 0.0)
+                        local remaining = targetDelay - elapsed
+                        if remaining > 0 then
+                            task.wait(remaining)
+                        end
+                        
+                        local mode = GetOpt("ParryMode", "Both")
+                        
+                        -- 2. Tool Activation Mode
+                        if mode == "Tool Activate" or mode == "Both" then
+                            local bp = player:FindFirstChild("Backpack")
+                            local dagger = findDagger()
                             
-                            local mode = GetOpt("ParryMode", "Both")
-                            
-                            -- 1. Tool Activation Mode
-                            if mode == "Tool Activate" or mode == "Both" then
-                                local bp = player:FindFirstChild("Backpack")
-                                local dagger = myChar:FindFirstChild("Parrying Dagger") or myChar:FindFirstChild("ParryingDagger")
-                                if not dagger and bp then
-                                    for _, t in ipairs(bp:GetChildren()) do
-                                        if t:IsA("Tool") and (t.Name:lower():find("parry") or t.Name:lower():find("dagger") or t.Name:lower():find("tangkis")) then
-                                            dagger = t
-                                            break
-                                        end
-                                    end
-                                end
-                                
-                                -- Relaxed search for any tool if no specific parry dagger found
-                                if not dagger and bp then
+                            -- Relaxed search for any tool if no specific parry dagger found
+                            if not dagger then
+                                if bp then
                                     for _, t in ipairs(bp:GetChildren()) do
                                         if t:IsA("Tool") then
                                             dagger = t
@@ -1192,31 +1584,68 @@ task.spawn(function()
                                         end
                                     end
                                 end
-                                
-                                if dagger then
-                                    if dagger.Parent == bp then
-                                        dagger.Parent = myChar
-                                        task.wait(0.02)
+                                if not dagger then
+                                    for _, t in ipairs(myChar:GetChildren()) do
+                                        if t:IsA("Tool") then
+                                            dagger = t
+                                            break
+                                        end
                                     end
-                                    pcall(function() dagger:Activate() end)
                                 end
                             end
                             
-                            -- 2. Key Press Mode
-                            if mode == "Key F" or mode == "Both" then
+                            if dagger and dagger.Parent == myChar then
+                                pcall(function() dagger:Activate() end)
+                                pcall(fireWeaponRemotes, dagger)
+                                if mouse1click then
+                                    pcall(mouse1click)
+                                end
+                                if mouse1press and mouse1release then
+                                    pcall(mouse1press)
+                                    task.wait(0.02)
+                                    pcall(mouse1release)
+                                end
+                                -- Fallback to VirtualInputManager
+                                pcall(function()
+                                    local x = mouse.X or 100
+                                    local y = mouse.Y or 100
+                                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                                    task.wait(0.01)
+                                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                                end)
+                            end
+                        end
+                        
+                        -- 3. Key Press Mode
+                        if mode == "Key F" or mode == "Both" then
+                            -- Try executor-level input simulation first (more reliable)
+                            if keypress and keyrelease then
+                                pcall(keypress, 70) -- Windows VK_F
+                                pcall(keypress, 102) -- Roblox keycode value F
+                                task.wait(0.05)
+                                pcall(keyrelease, 70)
+                                pcall(keyrelease, 102)
+                            else
                                 pcall(function()
                                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
                                     task.wait(0.05)
                                     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
                                 end)
                             end
-                            
-                            -- Prevent multiple triggers in the same frame
-                            task.wait(0.5)
                         end
+                        
+                        -- 4. Mobile UI Button Click (For Emulator/Mobile compatibility)
+                        pcall(triggerParryButton)
+                        
+                        -- Prevent multiple triggers in the same frame
+                        task.wait(0.5)
+                        _G.IsParrying = false
                     end
                 end
-            end)
+            end
+        end)
+        if not ok then
+            log("Error in Auto Parry Loop: " .. tostring(err))
         end
-    end
+    end)
 end)
