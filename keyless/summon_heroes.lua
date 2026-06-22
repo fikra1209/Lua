@@ -677,12 +677,9 @@ local function matchItemType(itemName)
         return "SummonTicket"
     elseif name:find("fusion") or name:find("kristal") or name:find("crystal") then
         return "FusionCrystal"
-    elseif name:find("burger") then
-        return "Burger"
-    elseif name:find("permen") or name:find("candy") then
-        return "Candy"
+    else
+        return "GoldConsumable"
     end
-    return nil
 end
 
 local function findShopFrame()
@@ -973,8 +970,7 @@ ShopSection:AddToggle("AutoBuyTraitReroll", { Title="▶ Buy Trait Reroll (Pengu
 ShopSection:AddToggle("AutoBuySummonTicket", { Title="▶ Buy Summon Ticket (Tiket Pemanggilan) [Gems]", Default=false, Callback = autoSave })
 ShopSection:AddToggle("AutoBuyFusionGem", { Title="▶ Buy Fusion Crystal [Gems]", Default=false, Callback = autoSave })
 ShopSection:AddToggle("AutoBuyFusionGold", { Title="▶ Buy Fusion Crystal [Gold]", Default=false, Callback = autoSave })
-ShopSection:AddToggle("AutoBuyBurger", { Title="▶ Buy Burger [Gold]", Default=false, Callback = autoSave })
-ShopSection:AddToggle("AutoBuyCandy", { Title="▶ Buy Candy (Permen) [Gold]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyGoldConsumables", { Title="▶ Buy All Gold Items (Burger, Candy, Cupcake, dll)", Default=false, Callback = autoSave })
 
 -- Tab Inventory
 Tabs.Inventory:AddToggle("SellRare",      { Title="Auto Sell Rare",       Default=false, Callback = autoSave })
@@ -1242,10 +1238,10 @@ task.spawn(function()
                                     else
                                         optionKey = "AutoBuyFusionGold"
                                     end
-                                elseif itemType == "Burger" then
-                                    optionKey = "AutoBuyBurger"
-                                elseif itemType == "Candy" then
-                                    optionKey = "AutoBuyCandy"
+                                elseif itemType == "GoldConsumable" then
+                                    if currency == "Gold" then
+                                        optionKey = "AutoBuyGoldConsumables"
+                                    end
                                 end
                                 
                                 if optionKey and GetOption(optionKey, false) then
