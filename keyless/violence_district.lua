@@ -336,6 +336,8 @@ end
 
 
 -- ─── Killer Detection ─────────────────────────────────────────────────────────
+local killerCharacterCache = nil
+
 local function isKiller(p)
     if not p or p==player then return false end
     local char=p.Character; if not char then return false end
@@ -347,8 +349,13 @@ local function isKiller(p)
 end
 
 local function getKillerChar()
+    if killerCharacterCache and killerCharacterCache.Parent then
+        return killerCharacterCache
+    end
+    -- Fallback scan if cache is empty
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isKiller(p) then
+            killerCharacterCache = p.Character
             return p.Character
         end
     end
@@ -502,11 +509,13 @@ local function dumpWorkspace()
 end
 
 local function scanPlayers()
+    local killerFound = nil
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and p.Character then
             local char = p.Character
             local isK = isKiller(p)
             if isK then
+                killerFound = char
                 if espData[char] then
                     if espData[char].type ~= "Killer" then
                         espData[char].type = "Killer"
@@ -531,6 +540,7 @@ local function scanPlayers()
             end
         end
     end
+    killerCharacterCache = killerFound
 end
 
 -- Hook DescendantAdded di workspace/Interractables untuk objek yang spawn saat match mulai
@@ -758,9 +768,23 @@ end
 
 
 -- ─── Killer Auto Attack ───────────────────────────────────────────────────────
+local function isLocalPlayerKiller()
+    local char = player.Character
+    if not char then return false end
+    if char:FindFirstChild("Weapon") or char:FindFirstChild("Axe") or char:FindFirstChild("Knife") or char:FindFirstChild("Bat") then
+        return true
+    end
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("Light") and (v.Color == Color3.fromRGB(255, 0, 0) or v.Color == Color3.fromRGB(200, 0, 0)) then
+            return true
+        end
+    end
+    return false
+end
+
 task.spawn(function()
     while task.wait(0.3) do
-        if GetOpt("AutoAttack",false) and isKiller(player) then
+        if GetOpt("AutoAttack",false) and isLocalPlayerKiller() then
             pcall(function()
                 local hrp=getHRP(); if not hrp then return end
                 local nearest,minD=nil,math.huge
@@ -769,7 +793,7 @@ task.spawn(function()
                         local sHrp=p.Character:FindFirstChild("HumanoidRootPart")
                         if sHrp then
                             local d=(hrp.Position-sHrp.Position).Magnitude
-                            if d<minD and not isKiller(p) then minD=d; nearest=sHrp end
+                            if d<minD and p.Character ~= killerCharacterCache then minD=d; nearest=sHrp end
                         end
                     end
                 end
@@ -1116,17 +1140,12 @@ task.spawn(function()
                 if now - lastParryTime < 2 then return end
                 
                 -- Find nearest killer
-                local nearestKiller, dist = nil, math.huge
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= player and isKiller(p) and p.Character then
-                        local kHrp = p.Character:FindFirstChild("HumanoidRootPart")
-                        if kHrp then
-                            local d = (myHrp.Position - kHrp.Position).Magnitude
-                            if d < dist then
-                                dist = d
-                                nearestKiller = p.Character
-                            end
-                        end
+                local nearestKiller = getKillerChar()
+                local dist = math.huge
+                if nearestKiller then
+                    local kHrp = nearestKiller:FindFirstChild("HumanoidRootPart")
+                    if kHrp then
+                        dist = (myHrp.Position - kHrp.Position).Magnitude
                     end
                 end
                 
