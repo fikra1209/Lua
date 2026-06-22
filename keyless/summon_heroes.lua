@@ -1101,9 +1101,15 @@ ShopSection:AddToggle("AutoBuyShopActive", { Title="⚡ Auto Buy Shop Active", D
 ShopSection:AddToggle("AutoOpenShopNPC", { Title="▶ Auto Open & Refresh Shop", Default=false, Callback = autoSave })
 ShopSection:AddToggle("AutoBuyTraitReroll", { Title="▶ Buy Trait Reroll (Pengulangan Ciri) [Gems]", Default=false, Callback = autoSave })
 ShopSection:AddToggle("AutoBuySummonTicket", { Title="▶ Buy Summon Ticket (Tiket Pemanggilan) [Gems]", Default=false, Callback = autoSave })
+
 ShopSection:AddToggle("AutoBuyFusionGem", { Title="▶ Buy Fusion Crystal [Gems]", Default=false, Callback = autoSave })
+ShopSection:AddSlider("AutoBuyFusionGemAmount", { Title="   └ Max Gems Fusion Crystals to Buy", Min=1, Max=10, Default=1, Rounding=0, Callback = autoSave })
+
 ShopSection:AddToggle("AutoBuyFusionGold", { Title="▶ Buy Fusion Crystal [Gold]", Default=false, Callback = autoSave })
+ShopSection:AddSlider("AutoBuyFusionGoldAmount", { Title="   └ Max Gold Fusion Crystals to Buy", Min=1, Max=10, Default=1, Rounding=0, Callback = autoSave })
+
 ShopSection:AddToggle("AutoBuyGoldConsumables", { Title="▶ Buy All Gold Items (Burger, Candy, Cupcake, dll)", Default=false, Callback = autoSave })
+ShopSection:AddSlider("AutoBuyGoldConsumablesAmount", { Title="   └ Max Food/Gold Items to Buy", Min=1, Max=50, Default=1, Rounding=0, Callback = autoSave })
 
 -- Tab Inventory
 Tabs.Inventory:AddToggle("SellRare",      { Title="Auto Sell Rare",       Default=false, Callback = autoSave })
@@ -1250,6 +1256,8 @@ local lastAutoOpenTime = 0
 local openedByBot = false
 local originalCFrame = nil
 local lastPurchaseAttempt = {}
+local lastItemInSlot = {}
+local purchasedCount = {}
 
 -- BuyItem Spy: capture EXACT args when user manually clicks Beli
 -- Uses manual __namecall hook (no hookmetamethod needed)
@@ -1478,6 +1486,7 @@ task.spawn(function()
                                 
                                 -- 4. Get option key
                                 local optionKey = nil
+                                local amountKey = nil
                                 if itemType == "TraitReroll" then
                                     optionKey = "AutoBuyTraitReroll"
                                 elseif itemType == "SummonTicket" then
@@ -1485,131 +1494,166 @@ task.spawn(function()
                                 elseif itemType == "FusionCrystal" then
                                     if currency == "Gems" then
                                         optionKey = "AutoBuyFusionGem"
+                                        amountKey = "AutoBuyFusionGemAmount"
                                     else
                                         optionKey = "AutoBuyFusionGold"
+                                        amountKey = "AutoBuyFusionGoldAmount"
                                     end
                                 elseif itemType == "GoldConsumable" then
                                     if currency == "Gold" then
                                         optionKey = "AutoBuyGoldConsumables"
+                                        amountKey = "AutoBuyGoldConsumablesAmount"
                                     end
                                 end
                                 
                                 if optionKey and GetOption(optionKey, false) then
-                                    local lastAttempt = lastPurchaseAttempt[slotIndex] or 0
-                                    if os.time() - lastAttempt >= 10 then
-                                        -- 5. Currency Check
-                                        local pGold, pGems = getPlayerCurrency()
-                                        local hasEnough = true
-                                        if currency == "Gold" and pGold > 0 and pGold < price then
-                                            hasEnough = false
-                                        elseif currency == "Gems" and pGems > 0 and pGems < price then
-                                            hasEnough = false
-                                        end
-                                        
-                                        if not hasEnough then
-                                            debugPrint("[AutoBuy] Not enough " .. currency .. " to buy " .. itemName .. " (Price: " .. price .. ", Balance: " .. (currency == "Gold" and pGold or pGems) .. ")")
-                                        else
-                                            debugPrint("[AutoBuy] Toggled option enabled for " .. itemName .. " (slot " .. slotIndex .. ")")
-                                            lastPurchaseAttempt[slotIndex] = os.time()
-                                            
-                                            local slotNum = tonumber(cardSlotName) or slotIndex
-                                            
-                                            -- ══ Direct Purchase Remote Call ══
-                                            pcall(function()
-                                                local BI = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("BuyItem")
-                                                if BI then
-                                                    debugPrint("[AutoBuy] Firing BuyItem Remote: 'ItemShop', slot=" .. slotNum)
-                                                    BI:FireServer("ItemShop", slotNum)
-                                                else
-                                                    debugPrint("[AutoBuy] BuyItem Remote not found!")
+                                    local limitAmount = amountKey and tonumber(GetOption(amountKey, 1)) or 1
+                                    
+                                    -- Check / reset purchase count for this slot if item changed
+                                    if lastItemInSlot[slotIndex] ~= itemName then
+                                        lastItemInSlot[slotIndex] = itemName
+                                        purchasedCount[slotIndex] = 0
+                                    end
+                                    
+                                    local alreadyBought = purchasedCount[slotIndex] or 0
+                                    if alreadyBought < limitAmount then
+                                        local lastAttempt = lastPurchaseAttempt[slotIndex] or 0
+                                        if os.time() - lastAttempt >= 5 then
+                                            -- Get stock remaining from text (default to 1 if not found)
+                                            local stockRemaining = 1
+                                            for _, lbl in ipairs(card:GetDescendants()) do
+                                                if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
+                                                    local txt = cleanText(lbl.Text)
+                                                    local num = txt:match("(%d+)%s*dalam%s*stok") or txt:match("(%d+)%s*in%s*stock") or txt:match("(%d+)%s*tersisa") or txt:match("(%d+)%s*left")
+                                                    if num then
+                                                        stockRemaining = tonumber(num) or 1
+                                                        break
+                                                    end
                                                 end
-                                            end)
-                                            
-                                            -- ══ Optional TraitReroll/RerollAction direct invoke ══
-                                            if itemType == "TraitReroll" then
-                                                pcall(function()
-                                                    local BTR = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("BuyTraitReroll")
-                                                    if BTR then
-                                                        debugPrint("[AutoBuy] Firing BuyTraitReroll slot=" .. slotNum)
-                                                        BTR:InvokeServer(slotNum)
-                                                    end
-                                                    local RA = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("RerollAction")
-                                                    if RA then
-                                                        RA:InvokeServer(slotNum)
-                                                    end
-                                                end)
                                             end
                                             
-                                            -- ══ Fallback click simulation to trigger UI reactions ══
-                                            pcall(function()
-                                                local beliBtn = nil
-                                                -- 1st pass: find a GuiButton (TextButton/ImageButton)
-                                                for _, desc in ipairs(card:GetDescendants()) do
-                                                    if desc:IsA("GuiButton") then
-                                                        local name = tostring(desc.Name):lower()
-                                                        local txt = cleanText(desc:IsA("TextButton") and desc.Text or "")
-                                                        if txt == "beli" or txt == "buy" or name:find("beli") or name:find("buy") then
-                                                            beliBtn = desc
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                                -- 2nd pass: look for label containing "beli" or "buy" and ascend
-                                                if not beliBtn then
-                                                    for _, desc in ipairs(card:GetDescendants()) do
-                                                        if desc:IsA("TextLabel") or desc:IsA("TextBox") then
-                                                            local txt = cleanText(desc.Text)
-                                                            if txt == "beli" or txt == "buy" then
-                                                                local parent = desc.Parent
-                                                                for i = 1, 4 do
-                                                                    if parent and parent:IsA("GuiButton") then
-                                                                        beliBtn = parent
-                                                                        break
-                                                                    end
-                                                                    if parent then parent = parent.Parent else break end
-                                                                end
-                                                                if beliBtn then break end
-                                                            end
-                                                        end
-                                                    end
-                                                end
-                                                -- 3rd pass: look for any UI element named BuyButton or BeliButton
-                                                if not beliBtn then
-                                                    for _, desc in ipairs(card:GetDescendants()) do
-                                                        local name = tostring(desc.Name):lower()
-                                                        if name == "buybutton" or name == "belibutton" or name == "buy" or name == "beli" then
-                                                            beliBtn = desc
-                                                            break
-                                                        end
-                                                    end
+                                            local toBuy = math.min(limitAmount - alreadyBought, stockRemaining)
+                                            if toBuy > 0 then
+                                                -- 5. Currency Check
+                                                local pGold, pGems = getPlayerCurrency()
+                                                local hasEnough = true
+                                                if currency == "Gold" and pGold > 0 and pGold < (price * toBuy) then
+                                                    toBuy = math.floor(pGold / price)
+                                                    if toBuy <= 0 then hasEnough = false end
+                                                elseif currency == "Gems" and pGems > 0 and pGems < (price * toBuy) then
+                                                    toBuy = math.floor(pGems / price)
+                                                    if toBuy <= 0 then hasEnough = false end
                                                 end
                                                 
-                                                if beliBtn then
-                                                    if firesignal then
-                                                        pcall(function() firesignal(beliBtn.MouseButton1Click) end)
-                                                        if beliBtn:IsA("GuiButton") then
-                                                            pcall(function() firesignal(beliBtn.Activated) end)
+                                                if not hasEnough then
+                                                    debugPrint("[AutoBuy] Not enough " .. currency .. " to buy " .. itemName .. " (Price: " .. price .. ", Balance: " .. (currency == "Gold" and pGold or pGems) .. ")")
+                                                else
+                                                    debugPrint("[AutoBuy] Buying " .. toBuy .. " units of " .. itemName .. " (slot " .. slotIndex .. ")")
+                                                    lastPurchaseAttempt[slotIndex] = os.time()
+                                                    
+                                                    local slotNum = tonumber(cardSlotName) or slotIndex
+                                                    local BI = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("BuyItem")
+                                                    
+                                                    -- Find Beli button for click simulation
+                                                    local beliBtn = nil
+                                                    -- 1st pass: find a GuiButton (TextButton/ImageButton)
+                                                    for _, desc in ipairs(card:GetDescendants()) do
+                                                        if desc:IsA("GuiButton") then
+                                                            local name = tostring(desc.Name):lower()
+                                                            local txt = cleanText(desc:IsA("TextButton") and desc.Text or "")
+                                                            if txt == "beli" or txt == "buy" or name:find("beli") or name:find("buy") then
+                                                                beliBtn = desc
+                                                                break
+                                                            end
                                                         end
                                                     end
-                                                    pcall(function()
-                                                        if getconnections then
-                                                            for _, conn in ipairs(getconnections(beliBtn.MouseButton1Click)) do
-                                                                pcall(conn.Fire)
-                                                            end
-                                                            if beliBtn:IsA("GuiButton") then
-                                                                for _, conn in ipairs(getconnections(beliBtn.Activated)) do
-                                                                    pcall(conn.Fire)
+                                                    -- 2nd pass: look for label containing "beli" or "buy" and ascend
+                                                    if not beliBtn then
+                                                        for _, desc in ipairs(card:GetDescendants()) do
+                                                            if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                                                                local txt = cleanText(desc.Text)
+                                                                if txt == "beli" or txt == "buy" then
+                                                                    local parent = desc.Parent
+                                                                    for i = 1, 4 do
+                                                                        if parent and parent:IsA("GuiButton") then
+                                                                            beliBtn = parent
+                                                                            break
+                                                                        end
+                                                                        if parent then parent = parent.Parent else break end
+                                                                    end
+                                                                    if beliBtn then break end
                                                                 end
                                                             end
                                                         end
-                                                    end)
+                                                    end
+                                                    -- 3rd pass: look for any UI element named BuyButton or BeliButton
+                                                    if not beliBtn then
+                                                        for _, desc in ipairs(card:GetDescendants()) do
+                                                            local name = tostring(desc.Name):lower()
+                                                            if name == "buybutton" or name == "belibutton" or name == "buy" or name == "beli" then
+                                                                beliBtn = desc
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                    
+                                                    for i = 1, toBuy do
+                                                        -- ══ Direct Purchase Remote Call ══
+                                                        pcall(function()
+                                                            if BI then
+                                                                debugPrint("[AutoBuy] ("..i.."/"..toBuy..") Firing BuyItem Remote: 'ItemShop', slot=" .. slotNum)
+                                                                BI:FireServer("ItemShop", slotNum)
+                                                            else
+                                                                debugPrint("[AutoBuy] BuyItem Remote not found!")
+                                                            end
+                                                        end)
+                                                        
+                                                        -- ══ Optional TraitReroll/RerollAction direct invoke ══
+                                                        if itemType == "TraitReroll" then
+                                                            pcall(function()
+                                                                local BTR = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("BuyTraitReroll")
+                                                                if BTR then
+                                                                    debugPrint("[AutoBuy] Firing BuyTraitReroll slot=" .. slotNum)
+                                                                    BTR:InvokeServer(slotNum)
+                                                                end
+                                                                local RA = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("RerollAction")
+                                                                if RA then
+                                                                    RA:InvokeServer(slotNum)
+                                                                end
+                                                            end)
+                                                        end
+                                                        
+                                                        -- ══ Fallback click simulation to trigger UI reactions ══
+                                                        if beliBtn then
+                                                            if firesignal then
+                                                                pcall(function() firesignal(beliBtn.MouseButton1Click) end)
+                                                                if beliBtn:IsA("GuiButton") then
+                                                                    pcall(function() firesignal(beliBtn.Activated) end)
+                                                                end
+                                                            end
+                                                            pcall(function()
+                                                                if getconnections then
+                                                                    for _, conn in ipairs(getconnections(beliBtn.MouseButton1Click)) do
+                                                                        pcall(conn.Fire)
+                                                                    end
+                                                                    if beliBtn:IsA("GuiButton") then
+                                                                        for _, conn in ipairs(getconnections(beliBtn.Activated)) do
+                                                                            pcall(conn.Fire)
+                                                                        end
+                                                                    end
+                                                                end
+                                                            end)
+                                                        end
+                                                        
+                                                        purchasedCount[slotIndex] = (purchasedCount[slotIndex] or 0) + 1
+                                                        task.wait(0.25)
+                                                        autoConfirmPurchase()
+                                                    end
+                                                    
+                                                    task.wait(0.25)
+                                                    autoConfirmPurchase()
                                                 end
-                                            end)
-                                            
-                                            task.wait(0.5)
-                                            autoConfirmPurchase()
-                                            task.wait(0.3)
-                                            autoConfirmPurchase()
+                                            end
                                         end
                                     end
                                 end
