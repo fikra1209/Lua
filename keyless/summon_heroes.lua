@@ -1188,6 +1188,36 @@ local openedByBot = false
 local originalCFrame = nil
 local lastPurchaseAttempt = {}
 
+-- BuyItem Spy: intercept real FireServer args from manual clicks to learn the exact format
+local capturedBuyArgs = {}
+pcall(function()
+    if hookmetamethod then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod and getnamecallmethod()
+            if method == "FireServer" then
+                local ok, rname = pcall(function() return self.Name end)
+                if ok and rname == "BuyItem" then
+                    local args = {...}
+                    local packed = {}
+                    for i, v in ipairs(args) do packed[i] = v end
+                    -- Keep only the last 5 captures
+                    if #capturedBuyArgs >= 5 then table.remove(capturedBuyArgs, 1) end
+                    table.insert(capturedBuyArgs, { t = os.clock(), args = packed })
+                    local argStr = ""
+                    for i, v in ipairs(packed) do argStr = argStr .. "[" .. i .. "]=" .. tostring(v) .. " " end
+                    debugPrint("[BuyItem SPY] Captured: " .. argStr)
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
+        debugPrint("[AutoBuy] BuyItem spy hook installed!")
+    else
+        debugPrint("[AutoBuy] hookmetamethod not available")
+    end
+end)
+
+
 task.spawn(function()
     debugPrint("[AutoBuy] Loop 5 started successfully.")
     while true do
@@ -1366,35 +1396,24 @@ task.spawn(function()
                                                 debugPrint("[AutoBuy] Found buy button: " .. beliBtn:GetFullName())
                                                 lastPurchaseAttempt[slotIndex] = os.time()
                                                 
-                                                -- Primary: Fire BuyItem RemoteEvent with multiple argument formats
-                                                local buyRemoteResult = false
-                                                pcall(function()
-                                                    local R = ReplicatedStorage:FindFirstChild("Remotes")
-                                                    local BuyRemote = R and R:FindFirstChild("BuyItem")
-                                                    if BuyRemote then
-                                                        -- Try format 1: just slot index (1-based)
-                                                        BuyRemote:FireServer(slotIndex)
-                                                        task.wait(0.1)
-                                                        -- Try format 2: slot index 0-based
-                                                        BuyRemote:FireServer(slotIndex - 1)
-                                                        task.wait(0.1)
-                                                        -- Try format 3: tostring slot
-                                                        BuyRemote:FireServer(tostring(slotIndex))
-                                                        buyRemoteResult = true
-                                                        debugPrint("[AutoBuy] BuyItem remote fired for slot " .. slotIndex)
-                                                    else
-                                                        debugPrint("[AutoBuy] WARNING: BuyItem remote NOT found in Remotes!")
-                                                    end
-                                                end)
+                                                local R = ReplicatedStorage:FindFirstChild("Remotes")
+                                                local BuyRemote = R and R:FindFirstChild("BuyItem")
                                                 
-                                                -- Secondary: getconnections on the confirmed button
-                                                task.wait(0.1)
+                                                -- Step 1: Replay spy-captured args (exact format from real click)
+                                                if BuyRemote and #capturedBuyArgs > 0 then
+                                                    local last = capturedBuyArgs[#capturedBuyArgs]
+                                                    debugPrint("[AutoBuy] Replaying spy-captured args (count=" .. #last.args .. ")")
+                                                    BuyRemote:FireServer(table.unpack(last.args))
+                                                    task.wait(0.15)
+                                                end
+                                                
+                                                -- Step 2: getconnections on actual button
                                                 pcall(function()
                                                     if getconnections then
                                                         for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
                                                             local ok2, conns = pcall(getconnections, beliBtn[evName])
                                                             if ok2 and conns and #conns > 0 then
-                                                                debugPrint("[AutoBuy] getconnections: " .. evName .. " has " .. #conns .. " conn(s) on " .. beliBtn.Name)
+                                                                debugPrint("[AutoBuy] getconnections " .. evName .. " = " .. #conns .. " conn(s)")
                                                                 for _, conn in ipairs(conns) do
                                                                     pcall(function() conn:Fire() end)
                                                                 end
@@ -1402,8 +1421,19 @@ task.spawn(function()
                                                         end
                                                     end
                                                 end)
+                                                task.wait(0.1)
                                                 
-                                                -- Tertiary: firesignal
+                                                -- Step 3: Blind fire all slot index formats
+                                                if BuyRemote then
+                                                    debugPrint("[AutoBuy] Blind firing BuyItem slot " .. slotIndex)
+                                                    BuyRemote:FireServer(slotIndex)
+                                                    task.wait(0.05)
+                                                    BuyRemote:FireServer(slotIndex - 1)
+                                                    task.wait(0.05)
+                                                    BuyRemote:FireServer(tostring(slotIndex))
+                                                end
+                                                
+                                                -- Step 4: firesignal
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
@@ -1418,21 +1448,26 @@ task.spawn(function()
                                                 task.wait(0.3)
                                                 autoConfirmPurchase()
                                             else
-                                                -- Button not found: attempt BuyItem remote directly anyway
-                                                debugPrint("[AutoBuy] Buy button not found for " .. itemName .. " slot " .. slotIndex .. " — firing remote directly")
+                                                -- Button not found: blind fire remote directly
+                                                debugPrint("[AutoBuy] Button not found for " .. itemName .. " slot " .. slotIndex .. " — blind firing")
                                                 lastPurchaseAttempt[slotIndex] = os.time()
                                                 pcall(function()
-                                                    local R = ReplicatedStorage:FindFirstChild("Remotes")
-                                                    local BuyRemote = R and R:FindFirstChild("BuyItem")
-                                                    if BuyRemote then
-                                                        BuyRemote:FireServer(slotIndex)
-                                                        task.wait(0.1)
-                                                        BuyRemote:FireServer(slotIndex - 1)
+                                                    local R2 = ReplicatedStorage:FindFirstChild("Remotes")
+                                                    local BR = R2 and R2:FindFirstChild("BuyItem")
+                                                    if BR then
+                                                        if #capturedBuyArgs > 0 then
+                                                            BR:FireServer(table.unpack(capturedBuyArgs[#capturedBuyArgs].args))
+                                                            task.wait(0.05)
+                                                        end
+                                                        BR:FireServer(slotIndex)
+                                                        task.wait(0.05)
+                                                        BR:FireServer(slotIndex - 1)
                                                     end
                                                 end)
                                                 task.wait(0.5)
                                                 autoConfirmPurchase()
                                             end
+
                                         end
                                     end
                                 end
