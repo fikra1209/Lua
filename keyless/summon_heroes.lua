@@ -459,9 +459,22 @@ local function collectChests()
     end
     
     if #prompts == 0 then
-        for _, desc in ipairs(workspace:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
-                table.insert(prompts, desc)
+        -- Search inside Map folder (which is much smaller than searching all of workspace)
+        local map = workspace:FindFirstChild("Map")
+        if map then
+            for _, desc in ipairs(map:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
+                    table.insert(prompts, desc)
+                end
+            end
+        end
+        -- Search inside Lobby folder if it exists
+        local lobby = workspace:FindFirstChild("Lobby")
+        if lobby then
+            for _, desc in ipairs(lobby:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
+                    table.insert(prompts, desc)
+                end
             end
         end
     end
@@ -594,28 +607,27 @@ end
 
 -- Cari TextButton atau TextLabel di semua GUI berdasarkan teks (hanya yang aktif/terlihat)
 local function findButtonByTexts(targetTexts)
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            for _, desc in ipairs(gui:GetDescendants()) do
-                if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
-                    local txt = cleanText(desc.Text)
-                    for _, t in ipairs(targetTexts) do
-                        if txt == t or string.find(txt, t, 1, true) then
-                            -- Jika TextButton, langsung kembalikan
-                            if desc:IsA("TextButton") then
-                                return desc
-                            end
-                            -- Jika TextLabel, cari parent/ancestor yang bertindak sebagai Button
-                            local parent = desc.Parent
-                            for i = 1, 3 do
-                                if parent and (parent:IsA("GuiButton") or parent:IsA("TextButton") or parent:IsA("ImageButton")) and isGuiVisible(parent) then
-                                    return parent
-                                end
-                                if parent then parent = parent.Parent else break end
-                            end
-                            -- Fallback ke parent terdekat jika tidak ditemukan GuiButton
-                            return desc.Parent or desc
+    local roundEnd = playerGui:FindFirstChild("RoundEnd")
+    if roundEnd and roundEnd.Enabled then
+        for _, desc in ipairs(roundEnd:GetDescendants()) do
+            if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
+                local txt = cleanText(desc.Text)
+                for _, t in ipairs(targetTexts) do
+                    if txt == t or string.find(txt, t, 1, true) then
+                        -- Jika TextButton, langsung kembalikan
+                        if desc:IsA("TextButton") then
+                            return desc
                         end
+                        -- Jika TextLabel, cari parent/ancestor yang bertindak sebagai Button
+                        local parent = desc.Parent
+                        for i = 1, 3 do
+                            if parent and (parent:IsA("GuiButton") or parent:IsA("TextButton") or parent:IsA("ImageButton")) and isGuiVisible(parent) then
+                                return parent
+                            end
+                            if parent then parent = parent.Parent else break end
+                        end
+                        -- Fallback ke parent terdekat jika tidak ditemukan GuiButton
+                        return desc.Parent or desc
                     end
                 end
             end
@@ -962,15 +974,14 @@ local voteScreenVisibleSince = 0
 local FINISH_TEXTS = {"kemenangan!", "kekalahan!", "victory!", "defeat!"}
 
 local function isMatchFinished()
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            for _, desc in ipairs(gui:GetDescendants()) do
-                if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
-                    local txt = cleanText(desc.Text)
-                    for _, t in ipairs(FINISH_TEXTS) do
-                        if txt == t or string.find(txt, t, 1, true) then
-                            return true
-                        end
+    local roundEnd = playerGui:FindFirstChild("RoundEnd")
+    if roundEnd and roundEnd.Enabled then
+        for _, desc in ipairs(roundEnd:GetDescendants()) do
+            if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
+                local txt = cleanText(desc.Text)
+                for _, t in ipairs(FINISH_TEXTS) do
+                    if txt == t or string.find(txt, t, 1, true) then
+                        return true
                     end
                 end
             end
