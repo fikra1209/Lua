@@ -1416,27 +1416,56 @@ task.spawn(function()
                                                 lastPurchaseAttempt[slotIndex] = os.time()
                                                 
                                                 local R = ReplicatedStorage:FindFirstChild("Remotes")
-                                                local BuyRemote = R and R:FindFirstChild("BuyItem")
+                                                local slotNum = tonumber(cardSlotName) or slotIndex
                                                 
-                                                -- Step 1: getconnections (try before remote, in case button handles it)
+                                                -- Step 1: Try BuyDirect remote (rotating shop may use this instead of BuyItem)
+                                                pcall(function()
+                                                    local BuyDirect = R and R:FindFirstChild("BuyDirect")
+                                                    if BuyDirect then
+                                                        debugPrint("[AutoBuy] Trying BuyDirect slot=" .. slotNum)
+                                                        BuyDirect:FireServer(slotNum)
+                                                        task.wait(0.05)
+                                                        BuyDirect:FireServer(slotNum - 1)
+                                                        task.wait(0.05)
+                                                        BuyDirect:FireServer(cardSlotName)
+                                                    end
+                                                end)
+                                                task.wait(0.1)
+                                                
+                                                -- Step 2: Try BuyItem remote (confirmed exists in Remotes)
+                                                pcall(function()
+                                                    local BuyItem = R and R:FindFirstChild("BuyItem")
+                                                    if BuyItem then
+                                                        debugPrint("[AutoBuy] Trying BuyItem slot=" .. slotNum)
+                                                        BuyItem:FireServer(slotNum)
+                                                        task.wait(0.05)
+                                                        BuyItem:FireServer(slotNum - 1)
+                                                        task.wait(0.05)
+                                                        BuyItem:FireServer(cardSlotName)
+                                                    end
+                                                end)
+                                                task.wait(0.1)
+                                                
+                                                -- Step 3: Try LimitedStockBuyGems (RemoteFunction, for limited-stock items)
+                                                pcall(function()
+                                                    local LimitedBuy = R and R:FindFirstChild("LimitedStockBuyGems")
+                                                    if LimitedBuy then
+                                                        debugPrint("[AutoBuy] Trying LimitedStockBuyGems slot=" .. slotNum)
+                                                        pcall(function() LimitedBuy:InvokeServer(slotNum) end)
+                                                        task.wait(0.05)
+                                                        pcall(function() LimitedBuy:InvokeServer(slotNum - 1) end)
+                                                    end
+                                                end)
+                                                task.wait(0.1)
+                                                
+                                                -- Step 4: getconnections on button and parent
                                                 pcall(function()
                                                     if getconnections then
-                                                        for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
-                                                            local ok2, conns = pcall(getconnections, beliBtn[evName])
-                                                            if ok2 and conns and #conns > 0 then
-                                                                debugPrint("[AutoBuy] getconnections " .. evName .. " = " .. #conns .. " conn(s)")
-                                                                for _, conn in ipairs(conns) do
-                                                                    pcall(function() conn:Fire() end)
-                                                                end
-                                                            end
-                                                        end
-                                                        -- Also try on parent Container
-                                                        local container = beliBtn.Parent
-                                                        if container then
+                                                        for _, target in ipairs({beliBtn, beliBtn.Parent}) do
                                                             for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
-                                                                local ok2, conns = pcall(getconnections, container[evName])
+                                                                local ok2, conns = pcall(getconnections, target[evName])
                                                                 if ok2 and conns and #conns > 0 then
-                                                                    debugPrint("[AutoBuy] PARENT getconnections " .. evName .. " = " .. #conns .. " conn(s)")
+                                                                    debugPrint("[AutoBuy] conn:Fire() " .. evName .. " on " .. target.Name .. " x" .. #conns)
                                                                     for _, conn in ipairs(conns) do
                                                                         pcall(function() conn:Fire() end)
                                                                     end
@@ -1447,30 +1476,7 @@ task.spawn(function()
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- Step 2: Fire BuyItem with every possible format
-                                                if BuyRemote then
-                                                    debugPrint("[AutoBuy] Firing BuyItem: cardName=" .. cardSlotName .. " slotIdx=" .. slotIndex)
-                                                    -- Format A: card container Name string (e.g. "1","2","3")
-                                                    BuyRemote:FireServer(cardSlotName)
-                                                    task.wait(0.05)
-                                                    -- Format B: tonumber of card name (e.g. 1, 2, 3)
-                                                    local cardNum = tonumber(cardSlotName)
-                                                    if cardNum then
-                                                        BuyRemote:FireServer(cardNum)
-                                                        task.wait(0.05)
-                                                        -- Format C: 0-based card num
-                                                        BuyRemote:FireServer(cardNum - 1)
-                                                        task.wait(0.05)
-                                                    end
-                                                    -- Format D: sequential slot index
-                                                    BuyRemote:FireServer(slotIndex)
-                                                    task.wait(0.05)
-                                                    -- Format E: 0-based slot index
-                                                    BuyRemote:FireServer(slotIndex - 1)
-                                                end
-
-                                                
-                                                -- Step 4: firesignal
+                                                -- Step 5: firesignal
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
@@ -1484,6 +1490,7 @@ task.spawn(function()
                                                 autoConfirmPurchase()
                                                 task.wait(0.3)
                                                 autoConfirmPurchase()
+
                                             else
                                                 -- Button not found: blind fire remote directly
                                                 debugPrint("[AutoBuy] Button not found for " .. itemName .. " slot " .. slotIndex .. " — blind firing")
