@@ -648,10 +648,36 @@ local function getPlayerCurrency()
     return gold, gems
 end
 
-local function getCurrencyType(priceLabel, cardFrame)
+local function getCurrencyType(priceLabel, cardFrame, itemType, price)
+    -- 1. Semantic override (extremely reliable based on game rules)
+    if itemType == "TraitReroll" or itemType == "SummonTicket" then
+        return "Gems"
+    elseif itemType == "GoldConsumable" then
+        return "Gold"
+    elseif itemType == "FusionCrystal" and price then
+        if price >= 300 then
+            return "Gold"
+        else
+            return "Gems"
+        end
+    end
+
+    -- 2. Fallback to image detection (filtering out large background/item icons)
     local currency = "Gems"
     for _, child in ipairs(cardFrame:GetDescendants()) do
         if child:IsA("ImageLabel") and child.Visible then
+            local sizeX = child.AbsoluteSize.X
+            local sizeY = child.AbsoluteSize.Y
+            if sizeX > 0 then
+                if sizeX > 45 or sizeY > 45 then
+                    continue
+                end
+            else
+                -- Fallback check using UDim2 Size
+                if child.Size.X.Scale > 0.3 or child.Size.X.Offset > 45 then
+                    continue
+                end
+            end
             local img = tostring(child.Image):lower()
             if img:find("coin") or img:find("gold") or img:find("yellow") or img:find("money") then
                 return "Gold"
@@ -672,6 +698,10 @@ end
 local function matchItemType(itemName)
     local name = cleanText(itemName)
     if name == "" or name == "beli" or name == "buy" or name:find("stok") or name:find("tersisa") or name:find("stock") or name:find("left") then
+        return nil
+    end
+    -- If text contains any numbers/digits, it's a price, stock, or banner, NOT the item name!
+    if name:match("%d") then
         return nil
     end
     -- Ignore quantity multiplier labels (e.g., x1, x10)
@@ -790,7 +820,7 @@ local function autoConfirmPurchase()
                     local txt = cleanText(desc.Text)
                     if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
                         local parentName = tostring(desc.Parent.Name):lower()
-                        if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") then
+                        if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") or parentName:find("alert") or parentName:find("window") or parentName:find("notification") then
                             clickButton(desc)
                             debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
                         end
@@ -851,7 +881,7 @@ end
 
 local function getShopResetTime(shopFrame)
     for _, desc in ipairs(shopFrame:GetDescendants()) do
-        if desc:IsA("TextLabel") and isGuiVisible(desc) then
+        if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
             local txt = desc.Text:lower()
             if txt:find("diperbarui") or txt:find("refreshed") or txt:find("reset") or txt:find("menit") or txt:find("detik") then
                 local m = txt:match("(%d+)m") or txt:match("(%d+)%s*menit") or txt:match("(%d+)%s*min")
@@ -1230,7 +1260,7 @@ task.spawn(function()
                         -- 1. Check stock
                         local isOutOfStock = false
                         for _, lbl in ipairs(card:GetDescendants()) do
-                            if lbl:IsA("TextLabel") then
+                            if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                 local txt = cleanText(lbl.Text)
                                 if txt:find("habis") or txt:find("out of stock") or txt:find("kehabisan") then
                                     isOutOfStock = true
@@ -1244,7 +1274,7 @@ task.spawn(function()
                             local itemType = nil
                             local itemName = ""
                             for _, lbl in ipairs(card:GetDescendants()) do
-                                if lbl:IsA("TextLabel") then
+                                if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                     local tType = matchItemType(lbl.Text)
                                     if tType then
                                         itemType = tType
@@ -1259,7 +1289,7 @@ task.spawn(function()
                                 local price = 0
                                 local priceLabel = nil
                                 for _, lbl in ipairs(card:GetDescendants()) do
-                                    if lbl:IsA("TextLabel") then
+                                    if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                         local txt = lbl.Text:gsub("%D", "")
                                         local num = tonumber(txt)
                                         if num and num > 0 and num < 100000 then
@@ -1275,7 +1305,7 @@ task.spawn(function()
                                 
                                 local currency = "Gems"
                                 if priceLabel then
-                                    currency = getCurrencyType(priceLabel, card)
+                                    currency = getCurrencyType(priceLabel, card, itemType, price)
                                 end
                                 
                                 debugPrint("[AutoBuy] Slot " .. slotIndex .. ": ItemName=" .. tostring(itemName) .. " | Price=" .. price .. " | Currency=" .. currency .. " | Type=" .. tostring(itemType))
@@ -1334,8 +1364,10 @@ task.spawn(function()
                                                 end)
                                                 -- Click button
                                                 clickButton(beliBtn)
-                                                task.wait(0.5)
-                                                autoConfirmPurchase()
+                                                for i = 1, 3 do
+                                                    task.wait(0.3)
+                                                    autoConfirmPurchase()
+                                                end
                                             end
                                         end
                                     end
