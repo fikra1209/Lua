@@ -374,7 +374,6 @@ local function getDescendantsManual(parent, skipNames)
         local ok, children = pcall(function() return obj:GetChildren() end)
         if ok and children then
             for _, child in ipairs(children) do
-                table.insert(descs, child)
                 local name = child.Name
                 local shouldSkip = false
                 if skipNames then
@@ -385,6 +384,14 @@ local function getDescendantsManual(parent, skipNames)
                         end
                     end
                 end
+                
+                -- Optimization: only store instances we actually care about (saves massive memory/CPU)
+                if child:IsA("ProximityPrompt") or child:IsA("GuiObject") or child:IsA("ValueBase") or 
+                   child:IsA("Model") or child:IsA("Folder") or child:IsA("ScreenGui") or 
+                   child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
+                    table.insert(descs, child)
+                end
+                
                 if not shouldSkip then
                     scan(child)
                 end
