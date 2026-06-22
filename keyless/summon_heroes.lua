@@ -1417,8 +1417,66 @@ task.spawn(function()
                                                 
                                                 local R = ReplicatedStorage:FindFirstChild("Remotes")
                                                 local slotNum = tonumber(cardSlotName) or slotIndex
+                                                local purchaseDone = false
                                                 
-                                                -- Step 1: Try BuyDirect remote (rotating shop may use this instead of BuyItem)
+                                                -- ═══ PRIMARY: OS-level mouse simulation ═══
+                                                -- This makes Roblox treat the click as real user input,
+                                                -- so the game's own LocalScript handler fires BuyItem correctly.
+                                                pcall(function()
+                                                    local abs = beliBtn.AbsolutePosition
+                                                    local sz  = beliBtn.AbsoluteSize
+                                                    local cx  = math.floor(abs.X + sz.X * 0.5)
+                                                    local cy  = math.floor(abs.Y + sz.Y * 0.5)
+                                                    debugPrint("[AutoBuy] OS click at (" .. cx .. "," .. cy .. ") for " .. beliBtn.Name)
+                                                    
+                                                    if mousemoveabs then
+                                                        mousemoveabs(cx, cy)
+                                                        task.wait(0.08)
+                                                        if mouse1press then
+                                                            mouse1press()
+                                                            task.wait(0.05)
+                                                            mouse1release()
+                                                            purchaseDone = true
+                                                            debugPrint("[AutoBuy] OS click sent (mouse1press/release)")
+                                                        elseif mouse1click then
+                                                            mouse1click()
+                                                            purchaseDone = true
+                                                            debugPrint("[AutoBuy] OS click sent (mouse1click)")
+                                                        elseif mouseclickat then
+                                                            mouseclickat(cx, cy)
+                                                            purchaseDone = true
+                                                            debugPrint("[AutoBuy] OS click sent (mouseclickat)")
+                                                        else
+                                                            debugPrint("[AutoBuy] mousemoveabs exists but no click function found")
+                                                        end
+                                                    else
+                                                        debugPrint("[AutoBuy] mousemoveabs NOT available — skipping OS click")
+                                                    end
+                                                end)
+                                                task.wait(0.2)
+                                                
+                                                -- ═══ FALLBACK 1: getconnections conn:Fire() ═══
+                                                if not purchaseDone then
+                                                    pcall(function()
+                                                        if getconnections then
+                                                            for _, target in ipairs({beliBtn, beliBtn.Parent}) do
+                                                                for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
+                                                                    local ok2, conns = pcall(getconnections, target[evName])
+                                                                    if ok2 and conns and #conns > 0 then
+                                                                        debugPrint("[AutoBuy] conn:Fire() " .. evName .. " on " .. target.Name .. " x" .. #conns)
+                                                                        for _, conn in ipairs(conns) do
+                                                                            pcall(function() conn:Fire() end)
+                                                                        end
+                                                                    end
+                                                                end
+                                                            end
+                                                        end
+                                                    end)
+                                                    task.wait(0.1)
+                                                end
+                                                
+                                                -- ═══ FALLBACK 2: Direct remote firing ═══
+                                                -- Try BuyDirect (rotating shop may use this)
                                                 pcall(function()
                                                     local BuyDirect = R and R:FindFirstChild("BuyDirect")
                                                     if BuyDirect then
@@ -1430,9 +1488,7 @@ task.spawn(function()
                                                         BuyDirect:FireServer(cardSlotName)
                                                     end
                                                 end)
-                                                task.wait(0.1)
-                                                
-                                                -- Step 2: Try BuyItem remote (confirmed exists in Remotes)
+                                                -- Try BuyItem
                                                 pcall(function()
                                                     local BuyItem = R and R:FindFirstChild("BuyItem")
                                                     if BuyItem then
@@ -1440,43 +1496,19 @@ task.spawn(function()
                                                         BuyItem:FireServer(slotNum)
                                                         task.wait(0.05)
                                                         BuyItem:FireServer(slotNum - 1)
-                                                        task.wait(0.05)
-                                                        BuyItem:FireServer(cardSlotName)
                                                     end
                                                 end)
-                                                task.wait(0.1)
-                                                
-                                                -- Step 3: Try LimitedStockBuyGems (RemoteFunction, for limited-stock items)
+                                                -- Try LimitedStockBuyGems for limited-stock items
                                                 pcall(function()
                                                     local LimitedBuy = R and R:FindFirstChild("LimitedStockBuyGems")
                                                     if LimitedBuy then
                                                         debugPrint("[AutoBuy] Trying LimitedStockBuyGems slot=" .. slotNum)
                                                         pcall(function() LimitedBuy:InvokeServer(slotNum) end)
-                                                        task.wait(0.05)
-                                                        pcall(function() LimitedBuy:InvokeServer(slotNum - 1) end)
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- Step 4: getconnections on button and parent
-                                                pcall(function()
-                                                    if getconnections then
-                                                        for _, target in ipairs({beliBtn, beliBtn.Parent}) do
-                                                            for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
-                                                                local ok2, conns = pcall(getconnections, target[evName])
-                                                                if ok2 and conns and #conns > 0 then
-                                                                    debugPrint("[AutoBuy] conn:Fire() " .. evName .. " on " .. target.Name .. " x" .. #conns)
-                                                                    for _, conn in ipairs(conns) do
-                                                                        pcall(function() conn:Fire() end)
-                                                                    end
-                                                                end
-                                                            end
-                                                        end
-                                                    end
-                                                end)
-                                                task.wait(0.1)
-                                                
-                                                -- Step 5: firesignal
+                                                -- ═══ FALLBACK 3: firesignal ═══
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
