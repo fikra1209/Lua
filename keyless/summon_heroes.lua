@@ -586,12 +586,9 @@ end
 local function clickButton(btn)
     local clicked = false
 
-    -- 1. firesignal (Standard executor API for Roblox native events, doesn't throw like :Fire())
+    -- 1. firesignal (Modern standard executor API for Roblox native events)
     pcall(function()
         if firesignal then
-            firesignal(btn.MouseButton1Down)
-            task.wait(0.01)
-            firesignal(btn.MouseButton1Up)
             firesignal(btn.MouseButton1Click)
             if btn:IsA("GuiButton") then
                 firesignal(btn.Activated)
@@ -600,10 +597,10 @@ local function clickButton(btn)
         end
     end)
 
-    -- 2. getconnections (Xeno / generic connections executor API)
+    -- 2. getconnections (Classic connection firing fallback)
     pcall(function()
         if getconnections then
-            for _, evName in ipairs({"Activated","MouseButton1Click","MouseButton1Down"}) do
+            for _, evName in ipairs({"Activated","MouseButton1Click"}) do
                 local ok, conns = pcall(getconnections, btn[evName])
                 if ok and conns and #conns>0 then
                     for _, conn in ipairs(conns) do
@@ -611,25 +608,6 @@ local function clickButton(btn)
                         clicked = true
                     end
                 end
-            end
-        end
-    end)
-
-    -- 3. Mouse simulation fisik (universal fallback, absolute coordinates click)
-    pcall(function()
-        if btn.AbsolutePosition and btn.AbsoluteSize then
-            local p = btn.AbsolutePosition + btn.AbsoluteSize/2
-            if mousemoveabs and (mouse1click or mouse1press) then
-                mousemoveabs(p.X, p.Y)
-                task.wait(0.02)
-                if mouse1click then
-                    mouse1click()
-                else
-                    mouse1press()
-                    task.wait(0.02)
-                    mouse1release()
-                end
-                clicked = true
             end
         end
     end)
@@ -1385,23 +1363,75 @@ task.spawn(function()
                                             end
                                             
                                             if beliBtn then
-                                                debugPrint("[AutoBuy] Clicking buy button for " .. itemName .. " (Slot " .. slotIndex .. ") -> Class: " .. beliBtn.ClassName .. " | Path: " .. beliBtn:GetFullName())
+                                                debugPrint("[AutoBuy] Found buy button: " .. beliBtn:GetFullName())
                                                 lastPurchaseAttempt[slotIndex] = os.time()
-                                                -- Fire remote
+                                                
+                                                -- Primary: Fire BuyItem RemoteEvent with multiple argument formats
+                                                local buyRemoteResult = false
                                                 pcall(function()
-                                                    local BuyRemote = ReplicatedStorage:WaitForChild("Remotes", 2):FindFirstChild("BuyItem")
+                                                    local R = ReplicatedStorage:FindFirstChild("Remotes")
+                                                    local BuyRemote = R and R:FindFirstChild("BuyItem")
                                                     if BuyRemote then
+                                                        -- Try format 1: just slot index (1-based)
                                                         BuyRemote:FireServer(slotIndex)
+                                                        task.wait(0.1)
+                                                        -- Try format 2: slot index 0-based
+                                                        BuyRemote:FireServer(slotIndex - 1)
+                                                        task.wait(0.1)
+                                                        -- Try format 3: tostring slot
+                                                        BuyRemote:FireServer(tostring(slotIndex))
+                                                        buyRemoteResult = true
+                                                        debugPrint("[AutoBuy] BuyItem remote fired for slot " .. slotIndex)
+                                                    else
+                                                        debugPrint("[AutoBuy] WARNING: BuyItem remote NOT found in Remotes!")
                                                     end
                                                 end)
-                                                -- Click button
-                                                clickButton(beliBtn)
-                                                for i = 1, 3 do
-                                                    task.wait(0.3)
-                                                    autoConfirmPurchase()
-                                                end
+                                                
+                                                -- Secondary: getconnections on the confirmed button
+                                                task.wait(0.1)
+                                                pcall(function()
+                                                    if getconnections then
+                                                        for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
+                                                            local ok2, conns = pcall(getconnections, beliBtn[evName])
+                                                            if ok2 and conns and #conns > 0 then
+                                                                debugPrint("[AutoBuy] getconnections: " .. evName .. " has " .. #conns .. " conn(s) on " .. beliBtn.Name)
+                                                                for _, conn in ipairs(conns) do
+                                                                    pcall(function() conn:Fire() end)
+                                                                end
+                                                            end
+                                                        end
+                                                    end
+                                                end)
+                                                
+                                                -- Tertiary: firesignal
+                                                pcall(function()
+                                                    if firesignal then
+                                                        firesignal(beliBtn.MouseButton1Click)
+                                                        if beliBtn:IsA("GuiButton") then
+                                                            firesignal(beliBtn.Activated)
+                                                        end
+                                                    end
+                                                end)
+                                                
+                                                task.wait(0.5)
+                                                autoConfirmPurchase()
+                                                task.wait(0.3)
+                                                autoConfirmPurchase()
                                             else
-                                                debugPrint("[AutoBuy] WARNING: Buy button not found for " .. itemName .. " in slot " .. slotIndex)
+                                                -- Button not found: attempt BuyItem remote directly anyway
+                                                debugPrint("[AutoBuy] Buy button not found for " .. itemName .. " slot " .. slotIndex .. " — firing remote directly")
+                                                lastPurchaseAttempt[slotIndex] = os.time()
+                                                pcall(function()
+                                                    local R = ReplicatedStorage:FindFirstChild("Remotes")
+                                                    local BuyRemote = R and R:FindFirstChild("BuyItem")
+                                                    if BuyRemote then
+                                                        BuyRemote:FireServer(slotIndex)
+                                                        task.wait(0.1)
+                                                        BuyRemote:FireServer(slotIndex - 1)
+                                                    end
+                                                end)
+                                                task.wait(0.5)
+                                                autoConfirmPurchase()
                                             end
                                         end
                                     end
