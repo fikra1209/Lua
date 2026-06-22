@@ -671,6 +671,20 @@ end
 
 local function matchItemType(itemName)
     local name = cleanText(itemName)
+    if name == "" or name == "beli" or name == "buy" or name:find("stok") or name:find("tersisa") or name:find("stock") or name:find("left") then
+        return nil
+    end
+    -- Ignore quantity multiplier labels (e.g., x1, x10)
+    if name:match("^x%d+$") or name:match("^%d+x$") or name == "x" then
+        return nil
+    end
+    -- Check if it is a number (price label)
+    if tonumber(name:gsub("%D", "")) ~= nil then
+        if name:gsub("%s", ""):match("^%d+$") then
+            return nil
+        end
+    end
+    
     if name:find("pengulangan") or name:find("ciri") or name:find("reroll") then
         return "TraitReroll"
     elseif name:find("tiket") or name:find("pemanggilan") or name:find("ticket") or name:find("summon") then
