@@ -1188,32 +1188,85 @@ local openedByBot = false
 local originalCFrame = nil
 local lastPurchaseAttempt = {}
 
--- BuyItem Spy: intercept real FireServer args from manual clicks to learn the exact format
+-- BuyItem Spy: capture EXACT args when user manually clicks Beli
+-- Uses manual __namecall hook (no hookmetamethod needed)
 local capturedBuyArgs = {}
 pcall(function()
-    if hookmetamethod then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            local method = getnamecallmethod and getnamecallmethod()
-            if method == "FireServer" then
-                local ok, rname = pcall(function() return self.Name end)
-                if ok and rname == "BuyItem" then
-                    local args = {...}
-                    local packed = {}
-                    for i, v in ipairs(args) do packed[i] = v end
-                    -- Keep only the last 5 captures
-                    if #capturedBuyArgs >= 5 then table.remove(capturedBuyArgs, 1) end
-                    table.insert(capturedBuyArgs, { t = os.clock(), args = packed })
-                    local argStr = ""
-                    for i, v in ipairs(packed) do argStr = argStr .. "[" .. i .. "]=" .. tostring(v) .. " " end
-                    debugPrint("[BuyItem SPY] Captured: " .. argStr)
+    -- Try manual __namecall hook first (works even without hookmetamethod)
+    local ok_mt, mt = pcall(getrawmetatable, game)
+    if ok_mt and mt then
+        pcall(setreadonly, mt, false)
+        local oldNamecall = rawget(mt, "__namecall")
+        if oldNamecall then
+            local function interceptor(self, ...)
+                local method = getnamecallmethod and getnamecallmethod() or ""
+                if method == "FireServer" or method == "InvokeServer" then
+                    local ok2, rname = pcall(function() return self.Name end)
+                    if ok2 and rname then
+                        local args = {...}
+                        local parts = {}
+                        for i, v in ipairs(args) do
+                            parts[i] = type(v) .. "=" .. tostring(v)
+                        end
+                        debugPrint("[BuySpy] " .. rname .. ":" .. method ..
+                            "(" .. table.concat(parts, ", ") .. ")")
+                        -- Save buy-related calls
+                        local nameLower = rname:lower()
+                        if nameLower:find("buy") or nameLower:find("direct") or
+                           nameLower:find("reroll") or nameLower:find("slot") or
+                           nameLower:find("purchase") then
+                            if #capturedBuyArgs >= 10 then
+                                table.remove(capturedBuyArgs, 1)
+                            end
+                            table.insert(capturedBuyArgs, {
+                                remote = rname,
+                                method = method,
+                                args = args,
+                                t = os.clock()
+                            })
+                        end
+                    end
+                end
+                return oldNamecall(self, ...)
+            end
+            -- Wrap with newcclosure if available
+            local wrappedFn = (newcclosure and pcall(newcclosure, interceptor) and newcclosure(interceptor)) or interceptor
+            local ok3, err3 = pcall(rawset, mt, "__namecall", wrappedFn)
+            if ok3 then
+                debugPrint("[BuySpy] __namecall hook OK via getrawmetatable — klik Beli manual sekarang!")
+            else
+                debugPrint("[BuySpy] rawset failed: " .. tostring(err3) .. " — trying hookmetamethod")
+                if hookmetamethod then
+                    hookmetamethod(game, "__namecall", wrappedFn)
+                    debugPrint("[BuySpy] hookmetamethod fallback OK")
                 end
             end
-            return oldNamecall(self, ...)
-        end)
-        debugPrint("[AutoBuy] BuyItem spy hook installed!")
+        else
+            debugPrint("[BuySpy] __namecall not in metatable")
+        end
     else
-        debugPrint("[AutoBuy] hookmetamethod not available")
+        debugPrint("[BuySpy] getrawmetatable failed: " .. tostring(mt))
+        -- Fallback to hookmetamethod
+        if hookmetamethod then
+            local oldNC
+            oldNC = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod and getnamecallmethod() or ""
+                if method == "FireServer" or method == "InvokeServer" then
+                    local ok2, rname = pcall(function() return self.Name end)
+                    if ok2 and rname then
+                        local args = {...}
+                        local parts = {}
+                        for i, v in ipairs(args) do parts[i] = type(v) .. "=" .. tostring(v) end
+                        debugPrint("[BuySpy] " .. rname .. ":" .. method ..
+                            "(" .. table.concat(parts, ", ") .. ")")
+                    end
+                end
+                return oldNC(self, ...)
+            end)
+            debugPrint("[BuySpy] hookmetamethod OK")
+        else
+            debugPrint("[BuySpy] All interception methods failed")
+        end
     end
 end)
 
