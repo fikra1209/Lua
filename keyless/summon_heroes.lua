@@ -1417,98 +1417,70 @@ task.spawn(function()
                                                 
                                                 local R = ReplicatedStorage:FindFirstChild("Remotes")
                                                 local slotNum = tonumber(cardSlotName) or slotIndex
-                                                local purchaseDone = false
                                                 
-                                                -- ═══ PRIMARY: OS-level mouse simulation ═══
-                                                -- This makes Roblox treat the click as real user input,
-                                                -- so the game's own LocalScript handler fires BuyItem correctly.
+                                                -- Step 1: getconnections (in case connection fires properly)
                                                 pcall(function()
-                                                    local abs = beliBtn.AbsolutePosition
-                                                    local sz  = beliBtn.AbsoluteSize
-                                                    local cx  = math.floor(abs.X + sz.X * 0.5)
-                                                    local cy  = math.floor(abs.Y + sz.Y * 0.5)
-                                                    debugPrint("[AutoBuy] OS click at (" .. cx .. "," .. cy .. ") for " .. beliBtn.Name)
-                                                    
-                                                    if mousemoveabs then
-                                                        mousemoveabs(cx, cy)
-                                                        task.wait(0.08)
-                                                        if mouse1press then
-                                                            mouse1press()
-                                                            task.wait(0.05)
-                                                            mouse1release()
-                                                            purchaseDone = true
-                                                            debugPrint("[AutoBuy] OS click sent (mouse1press/release)")
-                                                        elseif mouse1click then
-                                                            mouse1click()
-                                                            purchaseDone = true
-                                                            debugPrint("[AutoBuy] OS click sent (mouse1click)")
-                                                        elseif mouseclickat then
-                                                            mouseclickat(cx, cy)
-                                                            purchaseDone = true
-                                                            debugPrint("[AutoBuy] OS click sent (mouseclickat)")
-                                                        else
-                                                            debugPrint("[AutoBuy] mousemoveabs exists but no click function found")
-                                                        end
-                                                    else
-                                                        debugPrint("[AutoBuy] mousemoveabs NOT available — skipping OS click")
-                                                    end
-                                                end)
-                                                task.wait(0.2)
-                                                
-                                                -- ═══ FALLBACK 1: getconnections conn:Fire() ═══
-                                                if not purchaseDone then
-                                                    pcall(function()
-                                                        if getconnections then
-                                                            for _, target in ipairs({beliBtn, beliBtn.Parent}) do
-                                                                for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
-                                                                    local ok2, conns = pcall(getconnections, target[evName])
-                                                                    if ok2 and conns and #conns > 0 then
-                                                                        debugPrint("[AutoBuy] conn:Fire() " .. evName .. " on " .. target.Name .. " x" .. #conns)
-                                                                        for _, conn in ipairs(conns) do
-                                                                            pcall(function() conn:Fire() end)
-                                                                        end
+                                                    if getconnections then
+                                                        for _, target in ipairs({beliBtn, beliBtn.Parent}) do
+                                                            for _, evName in ipairs({"Activated", "MouseButton1Click"}) do
+                                                                local ok2, conns = pcall(getconnections, target[evName])
+                                                                if ok2 and conns and #conns > 0 then
+                                                                    debugPrint("[AutoBuy] conn:Fire() " .. evName .. " on " .. target.Name)
+                                                                    for _, conn in ipairs(conns) do
+                                                                        pcall(function() conn:Fire() end)
                                                                     end
                                                                 end
                                                             end
                                                         end
-                                                    end)
-                                                    task.wait(0.1)
-                                                end
-                                                
-                                                -- ═══ FALLBACK 2: Direct remote firing ═══
-                                                -- Try BuyDirect (rotating shop may use this)
-                                                pcall(function()
-                                                    local BuyDirect = R and R:FindFirstChild("BuyDirect")
-                                                    if BuyDirect then
-                                                        debugPrint("[AutoBuy] Trying BuyDirect slot=" .. slotNum)
-                                                        BuyDirect:FireServer(slotNum)
-                                                        task.wait(0.05)
-                                                        BuyDirect:FireServer(slotNum - 1)
-                                                        task.wait(0.05)
-                                                        BuyDirect:FireServer(cardSlotName)
                                                     end
                                                 end)
-                                                -- Try BuyItem
+                                                task.wait(0.15)
+                                                
+                                                -- Step 2: BuyItem with 2-arg format (shopType, slotIndex)
+                                                -- Game likely has multiple shops; server needs shopType to identify which one
                                                 pcall(function()
                                                     local BuyItem = R and R:FindFirstChild("BuyItem")
                                                     if BuyItem then
-                                                        debugPrint("[AutoBuy] Trying BuyItem slot=" .. slotNum)
+                                                        for _, shopName in ipairs({"RotatingShop", "RotatingShops", "Rotating", "Shop", "Daily", "DailyShop"}) do
+                                                            debugPrint("[AutoBuy] BuyItem(" .. shopName .. ", " .. slotNum .. ")")
+                                                            BuyItem:FireServer(shopName, slotNum)
+                                                            task.wait(0.05)
+                                                            BuyItem:FireServer(shopName, slotNum - 1)
+                                                            task.wait(0.05)
+                                                        end
+                                                        -- Also try single-arg as last resort
                                                         BuyItem:FireServer(slotNum)
                                                         task.wait(0.05)
                                                         BuyItem:FireServer(slotNum - 1)
                                                     end
                                                 end)
-                                                -- Try LimitedStockBuyGems for limited-stock items
+                                                task.wait(0.1)
+                                                
+                                                -- Step 3: Try to require RotatingShops module and call Purchase directly
                                                 pcall(function()
-                                                    local LimitedBuy = R and R:FindFirstChild("LimitedStockBuyGems")
-                                                    if LimitedBuy then
-                                                        debugPrint("[AutoBuy] Trying LimitedStockBuyGems slot=" .. slotNum)
-                                                        pcall(function() LimitedBuy:InvokeServer(slotNum) end)
+                                                    local Systems = ReplicatedStorage:FindFirstChild("Systems") or
+                                                                    workspace:FindFirstChild("Systems") or
+                                                                    game:GetService("ServerStorage"):FindFirstChild("Systems")
+                                                    local rsModule = Systems and Systems:FindFirstChild("RotatingShops")
+                                                    if rsModule and rsModule:IsA("ModuleScript") then
+                                                        local ok2, mod = pcall(require, rsModule)
+                                                        if ok2 and type(mod) == "table" then
+                                                            debugPrint("[AutoBuy] RotatingShops module loaded: " .. tostring(next(mod)))
+                                                            -- Try common purchase function names
+                                                            for _, fnName in ipairs({"Purchase", "Buy", "BuyItem", "PurchaseItem", "BuySlot"}) do
+                                                                if type(mod[fnName]) == "function" then
+                                                                    debugPrint("[AutoBuy] Calling module." .. fnName .. "(" .. slotNum .. ")")
+                                                                    pcall(function() mod[fnName](mod, slotNum) end)
+                                                                    pcall(function() mod[fnName](slotNum) end)
+                                                                    task.wait(0.05)
+                                                                end
+                                                            end
+                                                        end
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- ═══ FALLBACK 3: firesignal ═══
+                                                -- Step 4: firesignal fallback
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
