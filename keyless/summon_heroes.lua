@@ -23,6 +23,26 @@ if game.GameId ~= 9802644580 then
     return
 end
 
+-- ─── Script Re-execution & Re-entrancy Cleanup ──────────────────────────────
+_G.SH_Script_Id = (type(_G.SH_Script_Id) == "number" and _G.SH_Script_Id or 0) + 1
+local thisScriptId = _G.SH_Script_Id
+_G.SH_Script_Destroyed = false
+
+if _G.SH_Connections then
+    for _, conn in ipairs(_G.SH_Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(_G.SH_Connections)
+else
+    _G.SH_Connections = {}
+end
+
+local function safeConnect(signal, callback)
+    local conn = signal:Connect(callback)
+    table.insert(_G.SH_Connections, conn)
+    return conn
+end
+
 -- ─── Initialization ──────────────────────────────────────────────────────────
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,6 +51,17 @@ local TeleportService   = game:GetService("TeleportService")
 local VirtualUser       = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
+
+pcall(function()
+    safeConnect(player.OnTeleport, function()
+        debugPrint("[Teleport] Transition initiated. Cleaning up script connections...")
+        for _, conn in ipairs(_G.SH_Connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        table.clear(_G.SH_Connections)
+        _G.SH_Script_Destroyed = true
+    end)
+end)
 while not player do
     task.wait(0.1)
     player = Players.LocalPlayer
@@ -277,19 +308,19 @@ pcall(function()
     btn.Font=Enum.Font.GothamBold; btn.TextSize=16
     Instance.new("UICorner",btn).CornerRadius=UDim.new(0.5,0)
     local s=Instance.new("UIStroke",btn); s.Color=Color3.fromRGB(0,180,255); s.Thickness=2
-    btn.MouseButton1Click:Connect(function() pcall(function() Window:Minimize() end) end)
+    safeConnect(btn.MouseButton1Click, function() pcall(function() Window:Minimize() end) end)
     local UIS=game:GetService("UserInputService")
     local dragging,dragInput,dragStart,startPos
-    btn.InputBegan:Connect(function(i)
+    safeConnect(btn.InputBegan, function(i)
         if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
             dragging=true; dragStart=i.Position; startPos=btn.Position
-            i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then dragging=false end end)
+            safeConnect(i.Changed, function() if i.UserInputState==Enum.UserInputState.End then dragging=false end end)
         end
     end)
-    btn.InputChanged:Connect(function(i)
+    safeConnect(btn.InputChanged, function(i)
         if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then dragInput=i end
     end)
-    UIS.InputChanged:Connect(function(i)
+    safeConnect(UIS.InputChanged, function(i)
         if i==dragInput and dragging then
             local d=i.Position-dragStart
             btn.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
@@ -344,14 +375,14 @@ local function isInBattle()
 end
 
 -- ─── Lobby Persistence ───────────────────────────────────────────────────────
-player.CharacterAdded:Connect(function()
+safeConnect(player.CharacterAdded, function()
     task.wait(2)
     bindRemotes()
     debugPrint("[Persistence] CharacterAdded: remotes re-bound")
 end)
 
 pcall(function()
-    TeleportService.LocalPlayerArrivedFromTeleport:Connect(function()
+    safeConnect(TeleportService.LocalPlayerArrivedFromTeleport, function()
         task.wait(3)
         bindRemotes()
         debugPrint("[Persistence] ArrivedFromTeleport: remotes re-bound")
@@ -1114,7 +1145,7 @@ local function tryAutoVote()
 end
 
 -- ─── Anti-AFK ────────────────────────────────────────────────────────────────
-player.Idled:Connect(function()
+safeConnect(player.Idled, function()
     pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new(0,0)) end)
 end)
 
@@ -1246,6 +1277,8 @@ task.wait(0.5)
 -- Loop 1: Auto Wave Ready + Auto Collect + Auto Vote
 task.spawn(function()
     while task.wait(2) do
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
+        
         -- Auto Wave Ready (MANDIRI)
         if GetOption("AutoReady", false) then
             pcall(function()
@@ -1294,6 +1327,8 @@ end)
 -- Loop 2: Auto Summon
 task.spawn(function()
     while true do
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
+        
         if GetOption("AutoSummon", false) then
             pcall(function()
                 if SummonRemote then
@@ -1314,6 +1349,8 @@ end)
 -- Loop 3: Auto Sell & Auto Fuse
 task.spawn(function()
     while task.wait(10) do
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
+        
         if GetOption("SellRare",false) or GetOption("SellEpic",false) or GetOption("SellLegendary",false) then
             sellUnits()
         end
@@ -1339,6 +1376,7 @@ end
 -- Loop 4: Auto Rejoin (Checking error prompt presence)
 task.spawn(function()
     while task.wait(15) do
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
         if GetOption("AutoRejoin", true) then
             checkDisconnection()
         end
@@ -1375,6 +1413,7 @@ task.spawn(function()
     
     while true do
         task.wait(1.5)
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
         if GetOption("AutoBuyShopActive", false) then
             local ok, err = pcall(function()
                 local inLobby = (game.PlaceId == 117381420723145)
@@ -1730,6 +1769,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(60)
+        if _G.SH_Script_Id ~= thisScriptId or _G.SH_Script_Destroyed then break end
         pcall(function()
             collectgarbage("collect")
         end)
