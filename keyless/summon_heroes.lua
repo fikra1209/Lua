@@ -584,8 +584,23 @@ end
 
 -- Klik tombol: coba semua metode secara berurutan
 local function clickButton(btn)
-    -- Metode 1: getconnections (Xeno mendukung)
     local clicked = false
+
+    -- 1. firesignal (Standard executor API for Roblox native events, doesn't throw like :Fire())
+    pcall(function()
+        if firesignal then
+            firesignal(btn.MouseButton1Down)
+            task.wait(0.01)
+            firesignal(btn.MouseButton1Up)
+            firesignal(btn.MouseButton1Click)
+            if btn:IsA("GuiButton") then
+                firesignal(btn.Activated)
+            end
+            clicked = true
+        end
+    end)
+
+    -- 2. getconnections (Xeno / generic connections executor API)
     pcall(function()
         if getconnections then
             for _, evName in ipairs({"Activated","MouseButton1Click","MouseButton1Down"}) do
@@ -599,27 +614,26 @@ local function clickButton(btn)
             end
         end
     end)
-    if clicked then return true end
 
-    -- Metode 2: Fire events langsung (universal)
+    -- 3. Mouse simulation fisik (universal fallback, absolute coordinates click)
     pcall(function()
-        btn.MouseButton1Down:Fire(0,0); task.wait(0.05)
-        btn.MouseButton1Up:Fire(0,0)
-        btn.MouseButton1Click:Fire(0,0)
-        if btn:IsA("GuiButton") then
-            btn.Activated:Fire()
+        if btn.AbsolutePosition and btn.AbsoluteSize then
+            local p = btn.AbsolutePosition + btn.AbsoluteSize/2
+            if mousemoveabs and (mouse1click or mouse1press) then
+                mousemoveabs(p.X, p.Y)
+                task.wait(0.02)
+                if mouse1click then
+                    mouse1click()
+                else
+                    mouse1press()
+                    task.wait(0.02)
+                    mouse1release()
+                end
+                clicked = true
+            end
         end
-        clicked = true
     end)
-    if clicked then return true end
 
-    -- Metode 3: Mouse simulation fisik (Xeno)
-    pcall(function()
-        local p = btn.AbsolutePosition + btn.AbsoluteSize/2
-        if mousemoveabs then mousemoveabs(p.X, p.Y); task.wait(0.05) end
-        if mouse1click then mouse1click(); clicked=true
-        elseif mouse1press then mouse1press(); task.wait(0.05); mouse1release(); clicked=true end
-    end)
     return clicked
 end
 
@@ -1371,7 +1385,7 @@ task.spawn(function()
                                             end
                                             
                                             if beliBtn then
-                                                debugPrint("[AutoBuy] Clicking buy button for " .. itemName .. " (Slot " .. slotIndex .. ")")
+                                                debugPrint("[AutoBuy] Clicking buy button for " .. itemName .. " (Slot " .. slotIndex .. ") -> Class: " .. beliBtn.ClassName .. " | Path: " .. beliBtn:GetFullName())
                                                 lastPurchaseAttempt[slotIndex] = os.time()
                                                 -- Fire remote
                                                 pcall(function()
