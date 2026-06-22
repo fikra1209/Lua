@@ -1116,6 +1116,7 @@ end)
 local lastAutoOpenTime = 0
 local openedByBot = false
 local originalCFrame = nil
+local lastPurchaseAttempt = {}
 
 task.spawn(function()
     while true do
@@ -1245,40 +1246,44 @@ task.spawn(function()
                                 end
                                 
                                 if optionKey and GetOption(optionKey, false) then
-                                    -- 5. Currency Check
-                                    local pGold, pGems = getPlayerCurrency()
-                                    local hasEnough = true
-                                    if currency == "Gold" and pGold > 0 and pGold < price then
-                                        hasEnough = false
-                                    elseif currency == "Gems" and pGems > 0 and pGems < price then
-                                        hasEnough = false
-                                    end
-                                    
-                                    if hasEnough then
-                                        -- Find Beli button
-                                        local beliBtn = nil
-                                        for _, child in ipairs(card:GetDescendants()) do
-                                            if child:IsA("TextButton") or child:IsA("ImageButton") or child:IsA("GuiButton") then
-                                                local txt = cleanText(child.Text)
-                                                if txt == "beli" or txt == "buy" or child.Name == "Beli" or child.Name == "Buy" then
-                                                    beliBtn = child
-                                                    break
-                                                end
-                                            end
+                                    local lastAttempt = lastPurchaseAttempt[slotIndex] or 0
+                                    if os.time() - lastAttempt >= 10 then
+                                        -- 5. Currency Check
+                                        local pGold, pGems = getPlayerCurrency()
+                                        local hasEnough = true
+                                        if currency == "Gold" and pGold > 0 and pGold < price then
+                                            hasEnough = false
+                                        elseif currency == "Gems" and pGems > 0 and pGems < price then
+                                            hasEnough = false
                                         end
                                         
-                                        if beliBtn then
-                                            -- Fire remote
-                                            pcall(function()
-                                                local BuyRemote = ReplicatedStorage:WaitForChild("Remotes", 2):FindFirstChild("BuyItem")
-                                                if BuyRemote then
-                                                    BuyRemote:FireServer(slotIndex)
+                                        if hasEnough then
+                                            -- Find Beli button
+                                            local beliBtn = nil
+                                            for _, child in ipairs(card:GetDescendants()) do
+                                                if child:IsA("TextButton") or child:IsA("ImageButton") or child:IsA("GuiButton") then
+                                                    local txt = cleanText(child.Text)
+                                                    if txt == "beli" or txt == "buy" or child.Name == "Beli" or child.Name == "Buy" then
+                                                        beliBtn = child
+                                                        break
+                                                    end
                                                 end
-                                            end)
-                                            -- Click button
-                                            clickButton(beliBtn)
-                                            task.wait(0.5)
-                                            autoConfirmPurchase()
+                                            end
+                                            
+                                            if beliBtn then
+                                                lastPurchaseAttempt[slotIndex] = os.time()
+                                                -- Fire remote
+                                                pcall(function()
+                                                    local BuyRemote = ReplicatedStorage:WaitForChild("Remotes", 2):FindFirstChild("BuyItem")
+                                                    if BuyRemote then
+                                                        BuyRemote:FireServer(slotIndex)
+                                                    end
+                                                end)
+                                                -- Click button
+                                                clickButton(beliBtn)
+                                                task.wait(0.5)
+                                                autoConfirmPurchase()
+                                            end
                                         end
                                     end
                                 end
