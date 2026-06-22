@@ -39,6 +39,7 @@ local playerGui = player:WaitForChild("PlayerGui", 30)
 if not playerGui then return end
 
 
+local logCount = 0
 local function debugPrint(msg)
     local text = "[Summon Heroes Bot] " .. tostring(msg)
     print(text); warn(text)
@@ -46,40 +47,25 @@ local function debugPrint(msg)
     pcall(function()
         if writefile then
             local filename = "SH_Logs.txt"
-            if appendfile then
-                appendfile(filename, text .. "\n")
+            logCount = logCount + 1
+            if logCount >= 1000 then
+                logCount = 1
+                writefile(filename, "=== LOG RESET ===\n" .. text .. "\n")
             else
-                local content = isfile(filename) and readfile(filename) or ""
-                writefile(filename, content .. text .. "\n")
+                if appendfile then
+                    appendfile(filename, text .. "\n")
+                else
+                    local content = isfile(filename) and readfile(filename) or ""
+                    writefile(filename, content .. text .. "\n")
+                end
             end
         end
     end)
 end
 
--- Hook LogService to capture all Roblox console output (errors, other script prints, hook errors)
 pcall(function()
     if writefile then
-        local LogService = game:GetService("LogService")
-        -- Initialize file with existing history
-        local history = LogService:GetLogHistory()
-        local lines = {}
-        for _, log in ipairs(history) do
-            table.insert(lines, string.format("[%s] %s", tostring(log.messageType), log.message))
-        end
-        writefile("SH_Logs.txt", "=== STARTUP LOG HISTORY ===\n" .. table.concat(lines, "\n") .. "\n=== END OF STARTUP LOG HISTORY ===\n")
-        
-        -- Listen for new messages
-        LogService.MessageOut:Connect(function(message, messageType)
-            pcall(function()
-                local logLine = string.format("[%s] %s", tostring(messageType), message)
-                if appendfile then
-                    appendfile("SH_Logs.txt", logLine .. "\n")
-                else
-                    local content = isfile("SH_Logs.txt") and readfile("SH_Logs.txt") or ""
-                    writefile("SH_Logs.txt", content .. logLine .. "\n")
-                end
-            end)
-        end)
+        writefile("SH_Logs.txt", "=== SUMMON HEROES BOT STARTUP ===\n")
     end
 end)
 
@@ -1210,6 +1196,16 @@ Tabs.Inventory:AddToggle("AutoFuse",      { Title="Auto Fuse Lower Stars", Defau
 
 -- Tab Settings
 Tabs.Settings:AddToggle("AutoRejoin", { Title="Auto Rejoin on Disconnect", Default=true, Callback = autoSave })
+Tabs.Settings:AddToggle("AFKPerformanceMode", {
+    Title = "▶ AFK Performance Mode (Limit 15 FPS)",
+    Default = false,
+    Callback = function(v)
+        if setfpscap then
+            pcall(setfpscap, v and 15 or 60)
+        end
+        autoSave()
+    end
+})
 Tabs.Settings:AddButton({ Title="Unload / Close", Callback=function()
     Fluent:Destroy()
     pcall(function()
@@ -1800,5 +1796,15 @@ task.spawn(function()
                 debugPrint("[AutoBuy Loop Error] " .. tostring(err))
             end
         end
+    end
+end)
+
+-- Loop 6: Auto Garbage Collection (Setiap 60 detik) untuk menjaga kestabilan RAM
+task.spawn(function()
+    while true do
+        task.wait(60)
+        pcall(function()
+            collectgarbage("collect")
+        end)
     end
 end)
