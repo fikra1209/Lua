@@ -1464,6 +1464,29 @@ task.spawn(function()
         task.wait(1.5)
         if GetOption("AutoBuyShopActive", false) then
             local ok, err = pcall(function()
+                -- GUI Hierarchy Diagnostics
+                pcall(function()
+                    local dump = {}
+                    table.insert(dump, "=== PlayerGui ScreenGuis ===")
+                    for _, gui in ipairs(playerGui:GetChildren()) do
+                        if gui:IsA("ScreenGui") then
+                            table.insert(dump, string.format("ScreenGui: Name=%s, Enabled=%s", gui.Name, tostring(gui.Enabled)))
+                            if gui.Enabled then
+                                for _, desc in ipairs(gui:GetDescendants()) do
+                                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+                                        local txt = cleanText(desc.Text)
+                                        if txt ~= "" then
+                                            local path = desc:GetFullName()
+                                            table.insert(dump, string.format("  Text: %s | Text=%q | Visible=%s | Cleaned=%q", path, desc.Text, tostring(isGuiVisible(desc)), txt))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    writefile("SH_GUI_Diagnostics.txt", table.concat(dump, "\n"))
+                end)
+
                 local inLobby = (game.PlaceId == 117381420723145)
                 local shopTitleLabel = findShopFrame()
                 local isCurrentlyOpen = shopTitleLabel and isGuiVisible(shopTitleLabel)
