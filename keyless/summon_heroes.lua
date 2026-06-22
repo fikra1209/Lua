@@ -678,6 +678,10 @@ local function matchItemType(itemName)
     if name:match("^x%d+$") or name:match("^%d+x$") or name == "x" then
         return nil
     end
+    -- Ignore promotional / discount banners (e.g. 35% MORE, 10% OFF, SALE)
+    if name:find("%%") or name:find("more") or name:find("value") or name:find("sale") or name:find("diskon") or name:find("discount") or name:find("bonus") or name:find("off") then
+        return nil
+    end
     -- Check if it is a number (price label)
     if tonumber((name:gsub("%D", ""))) ~= nil then
         if name:gsub("%s", ""):match("^%d+$") then
