@@ -16,11 +16,8 @@
     - SaveManager + InterfaceManager Fluent integration
 ]]
 
--- Stop script execution if in the lobby AND it was auto-executed on load (to prevent auto-running in lobby)
+-- GUI will now show up in the lobby, but automation features will remain off by default.
 local ws = game:GetService("Workspace")
-if game.PlaceId == 117381420723145 and (not ws or ws.DistributedGameTime < 15) then
-    return
-end
 
 if game.GameId ~= 9802644580 then
     return
@@ -626,6 +623,206 @@ local function clickButton(btn)
     return clicked
 end
 
+-- ─── Shop Utility Functions ──────────────────────────────────────────────────
+local function getPlayerCurrency()
+    local gold = 0
+    local gems = 0
+    
+    -- 1. Try leaderstats
+    local ls = player:FindFirstChild("leaderstats")
+    if ls then
+        local gVal = ls:FindFirstChild("Gold") or ls:FindFirstChild("Coins") or ls:FindFirstChild("Cash")
+        local gemVal = ls:FindFirstChild("Gems") or ls:FindFirstChild("Diamonds")
+        if gVal and gVal:IsA("ValueBase") then gold = gVal.Value end
+        if gemVal and gemVal:IsA("ValueBase") then gems = gemVal.Value end
+    end
+    
+    -- 2. Check Player attributes
+    pcall(function()
+        local goldAttr = player:GetAttribute("Gold") or player:GetAttribute("Coins")
+        local gemAttr = player:GetAttribute("Gems") or player:GetAttribute("Diamonds")
+        if goldAttr then gold = goldAttr end
+        if gemAttr then gems = gemAttr end
+    end)
+    
+    return gold, gems
+end
+
+local function getCurrencyType(priceLabel, cardFrame)
+    local currency = "Gems"
+    for _, child in ipairs(cardFrame:GetDescendants()) do
+        if child:IsA("ImageLabel") and child.Visible then
+            local img = tostring(child.Image):lower()
+            if img:find("coin") or img:find("gold") or img:find("yellow") or img:find("money") then
+                return "Gold"
+            elseif img:find("gem") or img:find("diamond") or img:find("crystal") or img:find("purple") or img:find("blue") then
+                return "Gems"
+            end
+        end
+    end
+    if priceLabel then
+        local color = priceLabel.TextColor3
+        if color.R > 0.7 and color.G > 0.6 and color.B < 0.4 then
+            return "Gold"
+        end
+    end
+    return currency
+end
+
+local function matchItemType(itemName)
+    local name = cleanText(itemName)
+    if name:find("pengulangan") or name:find("ciri") or name:find("reroll") then
+        return "TraitReroll"
+    elseif name:find("tiket") or name:find("pemanggilan") or name:find("ticket") or name:find("summon") then
+        return "SummonTicket"
+    elseif name:find("fusion") or name:find("kristal") or name:find("crystal") then
+        return "FusionCrystal"
+    elseif name:find("burger") then
+        return "Burger"
+    elseif name:find("permen") or name:find("candy") then
+        return "Candy"
+    end
+    return nil
+end
+
+local function findShopFrame()
+    for _, gui in ipairs(playerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled then
+            for _, desc in ipairs(gui:GetDescendants()) do
+                if desc:IsA("TextLabel") and isGuiVisible(desc) then
+                    local text = cleanText(desc.Text)
+                    if text == "toko item" or text == "item shop" then
+                        return desc
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function getSortedShopCards(shopFrame)
+    local grid = nil
+    for _, desc in ipairs(shopFrame:GetDescendants()) do
+        if desc:IsA("UIGridLayout") or desc:IsA("UIListLayout") then
+            grid = desc
+            break
+        end
+    end
+    
+    local container = grid and grid.Parent
+    if not container then
+        for _, desc in ipairs(shopFrame:GetDescendants()) do
+            if desc:IsA("ScrollingFrame") then
+                container = desc
+                break
+            end
+        end
+    end
+    
+    if not container then
+        local firstBtn = shopFrame:FindFirstChild("Beli", true)
+        container = firstBtn and firstBtn.Parent and firstBtn.Parent.Parent
+    end
+    
+    if not container then return {} end
+    
+    local cards = {}
+    for _, child in ipairs(container:GetChildren()) do
+        if child:IsA("GuiObject") and (child:FindFirstChild("Beli", true) or child:FindFirstChildOfClass("TextButton") or child:FindFirstChildOfClass("ImageButton")) then
+            table.insert(cards, child)
+        end
+    end
+    
+    table.sort(cards, function(a, b)
+        if a.LayoutOrder ~= b.LayoutOrder then
+            return a.LayoutOrder < b.LayoutOrder
+        end
+        if a.AbsolutePosition.Y ~= b.AbsolutePosition.Y then
+            return a.AbsolutePosition.Y < b.AbsolutePosition.Y
+        end
+        return a.AbsolutePosition.X < b.AbsolutePosition.X
+    end)
+    
+    return cards
+end
+
+local function autoConfirmPurchase()
+    for _, gui in ipairs(playerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled then
+            for _, desc in ipairs(gui:GetDescendants()) do
+                if desc:IsA("TextButton") and isGuiVisible(desc) then
+                    local txt = cleanText(desc.Text)
+                    if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
+                        local parentName = tostring(desc.Parent.Name):lower()
+                        if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") then
+                            clickButton(desc)
+                            debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function getShopPrompt()
+    local best = nil
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            local name = tostring(desc.Name):lower()
+            local obj = tostring(desc.ObjectText or ""):lower()
+            local act = tostring(desc.ActionText or ""):lower()
+            
+            if name:find("toko item") or name:find("item shop")
+                or obj:find("toko item") or obj:find("item shop")
+                or act:find("toko item") or act:find("item shop") then
+                return desc
+            end
+            
+            if name:find("item") or obj:find("item") or act:find("item") then
+                best = desc
+            elseif not best and (name:find("shop") or name:find("toko") or obj:find("shop") or obj:find("toko")) then
+                best = desc
+            end
+        end
+    end
+    return best
+end
+
+local function closeShopUI(shopFrame)
+    for _, child in ipairs(shopFrame:GetDescendants()) do
+        if child:IsA("TextButton") or child:IsA("ImageButton") then
+            local txt = cleanText(child.Text)
+            if txt == "x" or child.Name:lower():find("close") or child.Name:lower():find("tutup") or child.Name == "CloseBtn" or child.Name == "CloseButton" then
+                clickButton(child)
+                debugPrint("[AutoBuy] Closed Shop UI using button: " .. child.Name)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function getShopResetTime(shopFrame)
+    for _, desc in ipairs(shopFrame:GetDescendants()) do
+        if desc:IsA("TextLabel") and isGuiVisible(desc) then
+            local txt = desc.Text:lower()
+            if txt:find("diperbarui") or txt:find("refreshed") or txt:find("reset") or txt:find("menit") or txt:find("detik") then
+                local m = txt:match("(%d+)m") or txt:match("(%d+)%s*menit") or txt:match("(%d+)%s*min")
+                local s = txt:match("(%d+)s") or txt:match("(%d+)%s*detik") or txt:match("(%d+)%s*sec") or txt:match("dalam%s*(%d+)%s*detik")
+                local totalSec = 0
+                if m then totalSec = totalSec + tonumber(m) * 60 end
+                if s then totalSec = totalSec + tonumber(s) end
+                if totalSec > 0 then return totalSec end
+                local secOnly = txt:match("dalam%s*(%d+)") or txt:match("(%d+)%s*seconds") or txt:match("(%d+)%s*detik")
+                if secOnly then return tonumber(secOnly) end
+            end
+        end
+    end
+    return nil
+end
+
 -- State vote (reset saat layar hilang)
 local votedThisRound = false
 local lastClickTime  = 0
@@ -769,6 +966,16 @@ Tabs.Summon:AddInput("CustomSummonPack",{ Title="Custom Pack Override", Default=
 Tabs.Summon:AddSlider("SummonAmount",  { Title="Amount per Summon", Min=1, Max=10, Default=1, Rounding=0, Callback = autoSave })
 Tabs.Summon:AddSlider("SummonInterval",{ Title="Delay (detik)",     Min=1, Max=10, Default=3, Rounding=0, Callback = autoSave })
 
+local ShopSection = Tabs.Summon:AddSection("Item Shop (Toko Item)")
+ShopSection:AddToggle("AutoBuyShopActive", { Title="⚡ Auto Buy Shop Active", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoOpenShopNPC", { Title="▶ Auto Open & Refresh Shop", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyTraitReroll", { Title="▶ Buy Trait Reroll (Pengulangan Ciri) [Gems]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuySummonTicket", { Title="▶ Buy Summon Ticket (Tiket Pemanggilan) [Gems]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyFusionGem", { Title="▶ Buy Fusion Crystal [Gems]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyFusionGold", { Title="▶ Buy Fusion Crystal [Gold]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyBurger", { Title="▶ Buy Burger [Gold]", Default=false, Callback = autoSave })
+ShopSection:AddToggle("AutoBuyCandy", { Title="▶ Buy Candy (Permen) [Gold]", Default=false, Callback = autoSave })
+
 -- Tab Inventory
 Tabs.Inventory:AddToggle("SellRare",      { Title="Auto Sell Rare",       Default=false, Callback = autoSave })
 Tabs.Inventory:AddToggle("SellEpic",      { Title="Auto Sell Epic",        Default=false, Callback = autoSave })
@@ -905,6 +1112,200 @@ task.spawn(function()
     while task.wait(15) do
         if GetOption("AutoRejoin", true) then
             checkDisconnection()
+        end
+    end
+end)
+
+-- Loop 5: Auto Buy Item Shop
+local lastAutoOpenTime = 0
+local openedByBot = false
+local originalCFrame = nil
+
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if GetOption("AutoBuyShopActive", false) then
+            pcall(function()
+                local inLobby = (game.PlaceId == 117381420723145)
+                local shopTitleLabel = findShopFrame()
+                local isCurrentlyOpen = shopTitleLabel and isGuiVisible(shopTitleLabel)
+                
+                -- Auto Open Shop if closed, enabled, and in lobby
+                if not isCurrentlyOpen and GetOption("AutoOpenShopNPC", false) and inLobby then
+                    local now = os.time()
+                    if now - lastAutoOpenTime >= 30 then
+                        local prompt = getShopPrompt()
+                        local char = player.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if prompt and hrp then
+                            originalCFrame = hrp.CFrame
+                            local part = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt:FindFirstAncestorOfClass("BasePart")
+                            if part then
+                                -- Teleport to NPC
+                                hrp.CFrame = part.CFrame + Vector3.new(0, 1.5, 0)
+                                task.wait(0.3)
+                                fireproximityprompt(prompt)
+                                task.wait(1.0)
+                                
+                                -- Re-check if open
+                                shopTitleLabel = findShopFrame()
+                                if shopTitleLabel and isGuiVisible(shopTitleLabel) then
+                                    isCurrentlyOpen = true
+                                    openedByBot = true
+                                    debugPrint("[AutoBuy] Shop opened automatically by bot.")
+                                else
+                                    -- Teleport back if opening failed
+                                    hrp.CFrame = originalCFrame
+                                    originalCFrame = nil
+                                end
+                            end
+                        end
+                        lastAutoOpenTime = os.time()
+                    end
+                end
+                
+                if isCurrentlyOpen then
+                    local shopFrame = shopTitleLabel.Parent
+                    
+                    -- Check if reset timer is less than 5 seconds
+                    local resetTime = getShopResetTime(shopFrame)
+                    if resetTime and resetTime <= 5 then
+                        debugPrint("[AutoBuy] Shop resets in " .. resetTime .. "s, waiting for refresh...")
+                        task.wait(resetTime + 1.5)
+                        -- Next cycle will scan the fresh items
+                        return
+                    end
+                    
+                    local cards = getSortedShopCards(shopFrame)
+                    
+                    for slotIndex, card in ipairs(cards) do
+                        -- 1. Check stock
+                        local isOutOfStock = false
+                        for _, lbl in ipairs(card:GetDescendants()) do
+                            if lbl:IsA("TextLabel") then
+                                local txt = cleanText(lbl.Text)
+                                if txt:find("habis") or txt:find("out of stock") or txt:find("kehabisan") then
+                                    isOutOfStock = true
+                                    break
+                                end
+                            end
+                        end
+                        
+                        if not isOutOfStock then
+                            -- 2. Match item type
+                            local itemType = nil
+                            local itemName = ""
+                            for _, lbl in ipairs(card:GetDescendants()) do
+                                if lbl:IsA("TextLabel") then
+                                    local tType = matchItemType(lbl.Text)
+                                    if tType then
+                                        itemType = tType
+                                        itemName = lbl.Text
+                                        break
+                                    end
+                                end
+                            end
+                            
+                            if itemType then
+                                -- 3. Get price & currency
+                                local price = 0
+                                local priceLabel = nil
+                                for _, lbl in ipairs(card:GetDescendants()) do
+                                    if lbl:IsA("TextLabel") then
+                                        local txt = lbl.Text:gsub("%D", "")
+                                        local num = tonumber(txt)
+                                        if num and num > 0 and num < 100000 then
+                                            local cleanTxt = cleanText(lbl.Text)
+                                            if not cleanTxt:find("stok") and not cleanTxt:find("tersisa") and not matchItemType(lbl.Text) then
+                                                price = num
+                                                priceLabel = lbl
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                                
+                                local currency = "Gems"
+                                if priceLabel then
+                                    currency = getCurrencyType(priceLabel, card)
+                                end
+                                
+                                -- 4. Get option key
+                                local optionKey = nil
+                                if itemType == "TraitReroll" then
+                                    optionKey = "AutoBuyTraitReroll"
+                                elseif itemType == "SummonTicket" then
+                                    optionKey = "AutoBuySummonTicket"
+                                elseif itemType == "FusionCrystal" then
+                                    if currency == "Gems" then
+                                        optionKey = "AutoBuyFusionGem"
+                                    else
+                                        optionKey = "AutoBuyFusionGold"
+                                    end
+                                elseif itemType == "Burger" then
+                                    optionKey = "AutoBuyBurger"
+                                elseif itemType == "Candy" then
+                                    optionKey = "AutoBuyCandy"
+                                end
+                                
+                                if optionKey and GetOption(optionKey, false) then
+                                    -- 5. Currency Check
+                                    local pGold, pGems = getPlayerCurrency()
+                                    local hasEnough = true
+                                    if currency == "Gold" and pGold > 0 and pGold < price then
+                                        hasEnough = false
+                                    elseif currency == "Gems" and pGems > 0 and pGems < price then
+                                        hasEnough = false
+                                    end
+                                    
+                                    if hasEnough then
+                                        -- Find Beli button
+                                        local beliBtn = nil
+                                        for _, child in ipairs(card:GetDescendants()) do
+                                            if child:IsA("TextButton") or child:IsA("ImageButton") or child:IsA("GuiButton") then
+                                                local txt = cleanText(child.Text)
+                                                if txt == "beli" or txt == "buy" or child.Name == "Beli" or child.Name == "Buy" then
+                                                    beliBtn = child
+                                                    break
+                                                end
+                                            end
+                                        end
+                                        
+                                        if beliBtn then
+                                            -- Fire remote
+                                            pcall(function()
+                                                local BuyRemote = ReplicatedStorage:WaitForChild("Remotes", 2):FindFirstChild("BuyItem")
+                                                if BuyRemote then
+                                                    BuyRemote:FireServer(slotIndex)
+                                                end
+                                            end)
+                                            -- Click button
+                                            clickButton(beliBtn)
+                                            task.wait(0.5)
+                                            autoConfirmPurchase()
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Close shop and teleport back if opened by bot
+                    if openedByBot then
+                        task.wait(1.5)
+                        closeShopUI(shopFrame)
+                        task.wait(0.5)
+                        local char = player.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp and originalCFrame then
+                            hrp.CFrame = originalCFrame
+                        end
+                        openedByBot = false
+                        originalCFrame = nil
+                        debugPrint("[AutoBuy] Shop closed and player returned to original position.")
+                    end
+                end
+            end)
         end
     end
 end)
