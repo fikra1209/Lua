@@ -897,7 +897,7 @@ local function findShopFrame()
                 for _, desc in ipairs(gui:GetDescendants()) do
                     if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
                         local text = cleanText(desc.Text)
-                        if text == "toko item" or text == "item shop" then
+                        if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
                             return desc
                         end
                     end
