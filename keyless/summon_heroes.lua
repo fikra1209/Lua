@@ -1450,19 +1450,27 @@ task.spawn(function()
                                                 end)
                                                 task.wait(0.15)
                                                 
-                                                -- Step 2: BuyItem with 2-arg format (shopType, slotIndex)
-                                                -- Game likely has multiple shops; server needs shopType to identify which one
+                                                -- Step 2: BuyItem — try every possible format
                                                 pcall(function()
                                                     local BuyItem = R and R:FindFirstChild("BuyItem")
                                                     if BuyItem then
-                                                        for _, shopName in ipairs({"RotatingShop", "RotatingShops", "Rotating", "Shop", "Daily", "DailyShop"}) do
-                                                            debugPrint("[AutoBuy] BuyItem(" .. shopName .. ", " .. slotNum .. ")")
+                                                        -- Format A: item key derived from name (no spaces)
+                                                        local keyPascal = itemName:gsub("%s+", "")        -- "FusionCrystal"
+                                                        local keyLower  = itemName:lower():gsub("%s+", "_") -- "fusion_crystal"
+                                                        local keyRaw    = itemName                          -- "Fusion Crystal"
+                                                        for _, k in ipairs({keyPascal, keyLower, keyRaw}) do
+                                                            debugPrint("[AutoBuy] BuyItem(key=" .. k .. ")")
+                                                            BuyItem:FireServer(k)
+                                                            task.wait(0.05)
+                                                        end
+                                                        -- Format B: 2-arg (shopType, slot)
+                                                        for _, shopName in ipairs({"RotatingShop", "Rotating", "Shop"}) do
                                                             BuyItem:FireServer(shopName, slotNum)
                                                             task.wait(0.05)
                                                             BuyItem:FireServer(shopName, slotNum - 1)
-                                                            task.wait(0.05)
+                                                            task.wait(0.04)
                                                         end
-                                                        -- Also try single-arg as last resort
+                                                        -- Format C: single slot number
                                                         BuyItem:FireServer(slotNum)
                                                         task.wait(0.05)
                                                         BuyItem:FireServer(slotNum - 1)
