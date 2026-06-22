@@ -1432,7 +1432,7 @@ task.spawn(function()
                                                 local R = ReplicatedStorage:FindFirstChild("Remotes")
                                                 local slotNum = tonumber(cardSlotName) or slotIndex
                                                 
-                                                -- Step 1: getconnections (in case connection fires properly)
+                                                -- ══ Step 1: conn:Fire() ══
                                                 pcall(function()
                                                     if getconnections then
                                                         for _, target in ipairs({beliBtn, beliBtn.Parent}) do
@@ -1450,59 +1450,64 @@ task.spawn(function()
                                                 end)
                                                 task.wait(0.15)
                                                 
-                                                -- Step 2: BuyItem — try every possible format
+                                                -- ══ Step 2: TraitReroll — use dedicated BuyTraitReroll remote ══
+                                                if itemType == "TraitReroll" then
+                                                    pcall(function()
+                                                        local BTR = R and R:FindFirstChild("BuyTraitReroll")
+                                                        if BTR then
+                                                            debugPrint("[AutoBuy] BuyTraitReroll slot=" .. slotNum)
+                                                            pcall(function() BTR:InvokeServer(slotNum) end)
+                                                            task.wait(0.05)
+                                                            pcall(function() BTR:InvokeServer(slotNum - 1) end)
+                                                            task.wait(0.05)
+                                                            pcall(function() BTR:InvokeServer(cardSlotName) end)
+                                                        end
+                                                        local RA = R and R:FindFirstChild("RerollAction")
+                                                        if RA then
+                                                            debugPrint("[AutoBuy] RerollAction slot=" .. slotNum)
+                                                            pcall(function() RA:InvokeServer(slotNum) end)
+                                                            task.wait(0.05)
+                                                            pcall(function() RA:InvokeServer(slotNum - 1) end)
+                                                        end
+                                                    end)
+                                                    task.wait(0.1)
+                                                end
+                                                
+                                                -- ══ Step 3: BuyDirect — PRIMARY for rotating shop ══
                                                 pcall(function()
-                                                    local BuyItem = R and R:FindFirstChild("BuyItem")
-                                                    if BuyItem then
-                                                        -- Format A: item key derived from name (no spaces)
-                                                        local keyPascal = itemName:gsub("%s+", "")        -- "FusionCrystal"
-                                                        local keyLower  = itemName:lower():gsub("%s+", "_") -- "fusion_crystal"
-                                                        local keyRaw    = itemName                          -- "Fusion Crystal"
-                                                        for _, k in ipairs({keyPascal, keyLower, keyRaw}) do
-                                                            debugPrint("[AutoBuy] BuyItem(key=" .. k .. ")")
-                                                            BuyItem:FireServer(k)
-                                                            task.wait(0.05)
-                                                        end
-                                                        -- Format B: 2-arg (shopType, slot)
-                                                        for _, shopName in ipairs({"RotatingShop", "Rotating", "Shop"}) do
-                                                            BuyItem:FireServer(shopName, slotNum)
-                                                            task.wait(0.05)
-                                                            BuyItem:FireServer(shopName, slotNum - 1)
-                                                            task.wait(0.04)
-                                                        end
-                                                        -- Format C: single slot number
-                                                        BuyItem:FireServer(slotNum)
+                                                    local BD = R and R:FindFirstChild("BuyDirect")
+                                                    if BD then
+                                                        debugPrint("[AutoBuy] BuyDirect slot=" .. slotNum .. " itemType=" .. (itemType or "?"))
+                                                        BD:FireServer(slotNum)
                                                         task.wait(0.05)
-                                                        BuyItem:FireServer(slotNum - 1)
+                                                        BD:FireServer(slotNum - 1)
+                                                        task.wait(0.05)
+                                                        BD:FireServer(cardSlotName)
+                                                        task.wait(0.05)
+                                                        -- Also try with item type key
+                                                        local keyPascal = itemName:gsub("%s+", "")
+                                                        BD:FireServer(keyPascal)
+                                                        task.wait(0.05)
+                                                        BD:FireServer(itemType or keyPascal)
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- Step 3: Try to require RotatingShops module and call Purchase directly
+                                                -- ══ Step 4: BuyItem fallback ══
                                                 pcall(function()
-                                                    local Systems = ReplicatedStorage:FindFirstChild("Systems") or
-                                                                    workspace:FindFirstChild("Systems") or
-                                                                    game:GetService("ServerStorage"):FindFirstChild("Systems")
-                                                    local rsModule = Systems and Systems:FindFirstChild("RotatingShops")
-                                                    if rsModule and rsModule:IsA("ModuleScript") then
-                                                        local ok2, mod = pcall(require, rsModule)
-                                                        if ok2 and type(mod) == "table" then
-                                                            debugPrint("[AutoBuy] RotatingShops module loaded: " .. tostring(next(mod)))
-                                                            -- Try common purchase function names
-                                                            for _, fnName in ipairs({"Purchase", "Buy", "BuyItem", "PurchaseItem", "BuySlot"}) do
-                                                                if type(mod[fnName]) == "function" then
-                                                                    debugPrint("[AutoBuy] Calling module." .. fnName .. "(" .. slotNum .. ")")
-                                                                    pcall(function() mod[fnName](mod, slotNum) end)
-                                                                    pcall(function() mod[fnName](slotNum) end)
-                                                                    task.wait(0.05)
-                                                                end
-                                                            end
-                                                        end
+                                                    local BI = R and R:FindFirstChild("BuyItem")
+                                                    if BI then
+                                                        debugPrint("[AutoBuy] BuyItem slot=" .. slotNum)
+                                                        BI:FireServer(slotNum)
+                                                        task.wait(0.05)
+                                                        BI:FireServer(slotNum - 1)
+                                                        task.wait(0.05)
+                                                        BI:FireServer(itemName:gsub("%s+", ""))
                                                     end
                                                 end)
                                                 task.wait(0.1)
                                                 
-                                                -- Step 4: firesignal fallback
+                                                -- ══ Step 5: firesignal ══
                                                 pcall(function()
                                                     if firesignal then
                                                         firesignal(beliBtn.MouseButton1Click)
