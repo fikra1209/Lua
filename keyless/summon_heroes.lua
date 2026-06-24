@@ -811,17 +811,18 @@ local function matchItemType(itemName)
 end
 
 local function findShopFrame()
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            local gname = tostring(gui.Name):lower()
-            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(gui:GetDescendants()) do
-                    if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
-                        local text = cleanText(desc.Text)
-                        if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
-                            return desc
-                        end
-                    end
+    local shopGui = playerGui:FindFirstChild("RotatingShop")
+    if shopGui and shopGui.Enabled then
+        local container = shopGui:FindFirstChild("Container")
+        local title = container and container:FindFirstChild("Title", true) or container:FindFirstChild("Heading", true)
+        if title then return title end
+        
+        -- Fallback inside RotatingShop only
+        for _, desc in ipairs(shopGui:GetDescendants()) do
+            if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
+                local text = cleanText(desc.Text)
+                if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
+                    return desc
                 end
             end
         end
@@ -830,17 +831,18 @@ local function findShopFrame()
 end
 
 local function findHiddenShopFrame()
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") then
-            local gname = tostring(gui.Name):lower()
-            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(gui:GetDescendants()) do
-                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
-                        local text = cleanText(desc.Text)
-                        if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
-                            return desc
-                        end
-                    end
+    local shopGui = playerGui:FindFirstChild("RotatingShop")
+    if shopGui then
+        local container = shopGui:FindFirstChild("Container")
+        local title = container and container:FindFirstChild("Title", true) or container:FindFirstChild("Heading", true)
+        if title then return title end
+        
+        -- Fallback inside RotatingShop only
+        for _, desc in ipairs(shopGui:GetDescendants()) do
+            if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+                local text = cleanText(desc.Text)
+                if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
+                    return desc
                 end
             end
         end
@@ -936,21 +938,14 @@ local function getSortedShopCards(shopScreen)
 end
 
 local function autoConfirmPurchase()
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            local gname = tostring(gui.Name):lower()
-            if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(gui:GetDescendants()) do
-                    if desc:IsA("TextButton") and isGuiVisible(desc) then
-                        local txt = cleanText(desc.Text)
-                        if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
-                            local parentName = tostring(desc.Parent.Name):lower()
-                            if parentName:find("popup") or parentName:find("dialog") or parentName:find("confirm") or parentName:find("prompt") or parentName:find("frame") or parentName:find("alert") or parentName:find("window") or parentName:find("notification") then
-                                clickButton(desc)
-                                debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
-                            end
-                        end
-                    end
+    local dialog = playerGui:FindFirstChild("Dialog")
+    if dialog and dialog.Enabled then
+        for _, desc in ipairs(dialog:GetDescendants()) do
+            if desc:IsA("TextButton") and isGuiVisible(desc) then
+                local txt = cleanText(desc.Text)
+                if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
+                    clickButton(desc)
+                    debugPrint("[AutoBuy] Auto-confirmed popup button: " .. desc.Text)
                 end
             end
         end
