@@ -182,7 +182,7 @@ end
 -- ─── InterfaceManager (Inlined) ──────────────────────────────────────────────
 local InterfaceManager = {} do
     InterfaceManager.Folder   = "FluentSettings"
-    InterfaceManager.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="Insert" }
+    InterfaceManager.Settings = { Theme="Dark", Acrylic=false, Transparency=false, MenuKeybind="Insert" }
     function InterfaceManager:SetFolder(f)    self.Folder=f; self:BuildFolderTree() end
     function InterfaceManager:SetLibrary(lib) self.Library=lib end
     function InterfaceManager:BuildFolderTree()
@@ -290,7 +290,7 @@ end
 local Window = Fluent:CreateWindow({
     Title="Summon Heroes", SubTitle="VICO",
     TabWidth=160, Size=UDim2.fromOffset(580,480),
-    Acrylic=true, Theme="Dark",
+    Acrylic=false, Theme="Dark",
     MinimizeKey=Enum.KeyCode.Insert
 })
 
@@ -484,6 +484,7 @@ end
 
 -- ─── Auto Collect Chests ─────────────────────────────────────────────────────
 local chestCooldowns = {}
+local lastDeepChestSearch = 0
 
 local function collectChests()
     local now = os.time()
@@ -492,7 +493,7 @@ local function collectChests()
     local map = workspace:FindFirstChild("Map")
     local bonusChests = map and map:FindFirstChild("BonusChests")
     if bonusChests then
-        for _, desc in ipairs(getDescendantsManual(bonusChests)) do
+        for _, desc in ipairs(bonusChests:GetDescendants()) do
             if desc:IsA("ProximityPrompt") then
                 table.insert(prompts, desc)
             end
@@ -501,7 +502,7 @@ local function collectChests()
     
     for _, child in ipairs(workspace:GetChildren()) do
         if child.Name == "Chest" or string.find(child.Name:lower(), "chest") then
-            for _, desc in ipairs(getDescendantsManual(child)) do
+            for _, desc in ipairs(child:GetDescendants()) do
                 if desc:IsA("ProximityPrompt") then
                     table.insert(prompts, desc)
                 end
@@ -510,21 +511,24 @@ local function collectChests()
     end
     
     if #prompts == 0 then
-        -- Search inside Map folder (which is much smaller than searching all of workspace)
-        local map = workspace:FindFirstChild("Map")
-        if map then
-            for _, desc in ipairs(getDescendantsManual(map)) do
-                if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
-                    table.insert(prompts, desc)
+        if now - lastDeepChestSearch >= 5 then
+            lastDeepChestSearch = now
+            -- Search inside Map folder (which is much smaller than searching all of workspace)
+            local map = workspace:FindFirstChild("Map")
+            if map then
+                for _, desc in ipairs(map:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
+                        table.insert(prompts, desc)
+                    end
                 end
             end
-        end
-        -- Search inside Lobby folder if it exists
-        local lobby = workspace:FindFirstChild("Lobby")
-        if lobby then
-            for _, desc in ipairs(getDescendantsManual(lobby)) do
-                if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
-                    table.insert(prompts, desc)
+            -- Search inside Lobby folder if it exists
+            local lobby = workspace:FindFirstChild("Lobby")
+            if lobby then
+                for _, desc in ipairs(lobby:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") and desc.Enabled and isChestPrompt(desc) then
+                        table.insert(prompts, desc)
+                    end
                 end
             end
         end
@@ -536,33 +540,12 @@ local function collectChests()
             if now - lastTry >= 3 then
                 chestCooldowns[desc] = now
                 pcall(function()
-                    local character = player.Character
-                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                    local basePart = nil
-                    if desc.Parent and desc.Parent:IsA("BasePart") then
-                        basePart = desc.Parent
-                    elseif desc.Parent and desc.Parent:IsA("Attachment") and desc.Parent.Parent and desc.Parent.Parent:IsA("BasePart") then
-                        basePart = desc.Parent.Parent
-                    else
-                        basePart = desc:FindFirstAncestorOfClass("BasePart")
-                    end
-                    
-                    if hrp and basePart then
-                        character:PivotTo(basePart.CFrame + Vector3.new(0, 1.5, 0))
-                        task.wait(0.35)
-                        local oldHold = desc.HoldDuration
-                        desc.HoldDuration = 0
-                        fireproximityprompt(desc)
-                        task.wait(0.25)
-                        desc.HoldDuration = oldHold
-                    else
-                        local oldHold = desc.HoldDuration
-                        desc.HoldDuration = 0
-                        fireproximityprompt(desc)
-                        task.wait(0.15)
-                        desc.HoldDuration = oldHold
-                    end
-                    debugPrint("Collected chest: " .. desc:GetFullName())
+                    local oldHold = desc.HoldDuration
+                    desc.HoldDuration = 0
+                    fireproximityprompt(desc)
+                    task.wait(0.1)
+                    desc.HoldDuration = oldHold
+                    debugPrint("Collected chest without teleport: " .. desc:GetFullName())
                 end)
             end
         end
@@ -660,7 +643,7 @@ end
 local function findButtonByTexts(targetTexts)
     local roundEnd = playerGui:FindFirstChild("RoundEnd")
     if roundEnd and roundEnd.Enabled then
-        for _, desc in ipairs(getDescendantsManual(roundEnd)) do
+        for _, desc in ipairs(roundEnd:GetDescendants()) do
             if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
                 local txt = cleanText(desc.Text)
                 for _, t in ipairs(targetTexts) do
@@ -761,7 +744,7 @@ local function getCurrencyType(priceLabel, cardFrame, itemType, price)
 
     -- 2. Fallback to image detection (filtering out large background/item icons)
     local currency = "Gems"
-    for _, child in ipairs(getDescendantsManual(cardFrame)) do
+    for _, child in ipairs(cardFrame:GetDescendants()) do
         if child:IsA("ImageLabel") and child.Visible then
             local sizeX = child.AbsoluteSize.X
             local sizeY = child.AbsoluteSize.Y
@@ -832,7 +815,7 @@ local function findShopFrame()
         if gui:IsA("ScreenGui") and gui.Enabled then
             local gname = tostring(gui.Name):lower()
             if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(getDescendantsManual(gui)) do
+                for _, desc in ipairs(gui:GetDescendants()) do
                     if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
                         local text = cleanText(desc.Text)
                         if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
@@ -851,7 +834,7 @@ local function findHiddenShopFrame()
         if gui:IsA("ScreenGui") then
             local gname = tostring(gui.Name):lower()
             if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(getDescendantsManual(gui)) do
+                for _, desc in ipairs(gui:GetDescendants()) do
                     if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
                         local text = cleanText(desc.Text)
                         if string.find(text, "toko item", 1, true) or string.find(text, "item shop", 1, true) then
@@ -888,7 +871,7 @@ end
 
 local function getSortedShopCards(shopScreen)
     local grid = nil
-    for _, desc in ipairs(getDescendantsManual(shopScreen)) do
+    for _, desc in ipairs(shopScreen:GetDescendants()) do
         if desc:IsA("UIGridLayout") or desc:IsA("UIListLayout") then
             grid = desc
             break
@@ -897,7 +880,7 @@ local function getSortedShopCards(shopScreen)
     
     local container = grid and grid.Parent
     if not container then
-        for _, desc in ipairs(getDescendantsManual(shopScreen)) do
+        for _, desc in ipairs(shopScreen:GetDescendants()) do
             if desc:IsA("ScrollingFrame") then
                 container = desc
                 break
@@ -907,7 +890,7 @@ local function getSortedShopCards(shopScreen)
     
     if not container then
         -- Find parent container of card with a Beli button
-        for _, desc in ipairs(getDescendantsManual(shopScreen)) do
+        for _, desc in ipairs(shopScreen:GetDescendants()) do
             if desc:IsA("TextLabel") or desc:IsA("TextButton") then
                 local txt = cleanText(desc.Text)
                 if txt == "beli" or txt == "buy" then
@@ -927,7 +910,7 @@ local function getSortedShopCards(shopScreen)
     for _, child in ipairs(container:GetChildren()) do
         if child:IsA("GuiObject") then
             local hasButton = false
-            for _, desc in ipairs(getDescendantsManual(child)) do
+            for _, desc in ipairs(child:GetDescendants()) do
                 if desc:IsA("GuiButton") or desc.Name:lower():find("button") or desc.Name:lower():find("btn") then
                     hasButton = true
                     break
@@ -957,7 +940,7 @@ local function autoConfirmPurchase()
         if gui:IsA("ScreenGui") and gui.Enabled then
             local gname = tostring(gui.Name):lower()
             if not gname:find("fluent") and gname ~= "sh_fluent" and not gname:find("bot") then
-                for _, desc in ipairs(getDescendantsManual(gui)) do
+                for _, desc in ipairs(gui:GetDescendants()) do
                     if desc:IsA("TextButton") and isGuiVisible(desc) then
                         local txt = cleanText(desc.Text)
                         if txt == "ya" or txt == "setuju" or txt == "yes" or txt == "confirm" or txt == "konfirmasi" or txt == "ok" then
@@ -1013,7 +996,7 @@ end
 
 local function closeShopUI(shopFrame)
     local closed = false
-    for _, child in ipairs(getDescendantsManual(shopFrame)) do
+    for _, child in ipairs(shopFrame:GetDescendants()) do
         local name = tostring(child.Name):lower()
         local txt = ""
         pcall(function()
@@ -1051,7 +1034,7 @@ local function closeShopUI(shopFrame)
 end
 
 local function getShopResetTime(shopFrame)
-    for _, desc in ipairs(getDescendantsManual(shopFrame)) do
+    for _, desc in ipairs(shopFrame:GetDescendants()) do
         if (desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox")) and isGuiVisible(desc) then
             local txt = cleanText(desc.Text)
             if txt:find("diperbarui") or txt:find("refreshed") or txt:find("reset") or txt:find("menit") or txt:find("detik") or txt:find("baru") or txt:find("new") then
@@ -1080,7 +1063,7 @@ local FINISH_TEXTS = {"kemenangan!", "kekalahan!", "victory!", "defeat!"}
 local function isMatchFinished()
     local roundEnd = playerGui:FindFirstChild("RoundEnd")
     if roundEnd and roundEnd.Enabled then
-        for _, desc in ipairs(getDescendantsManual(roundEnd)) do
+        for _, desc in ipairs(roundEnd:GetDescendants()) do
             if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and isGuiVisible(desc) then
                 local txt = cleanText(desc.Text)
                 for _, t in ipairs(FINISH_TEXTS) do
@@ -1426,29 +1409,16 @@ task.spawn(function()
                     if now - lastAutoOpenTime >= 30 then
                         if inLobby then
                             local prompt = getShopPrompt()
-                            local char = player.Character
-                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                            if prompt and hrp then
-                                originalCFrame = hrp.CFrame
-                                local part = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt:FindFirstAncestorOfClass("BasePart")
-                                if part then
-                                    -- Teleport to NPC
-                                    hrp.CFrame = part.CFrame + Vector3.new(0, 1.5, 0)
-                                    task.wait(0.3)
-                                    fireproximityprompt(prompt)
-                                    task.wait(1.0)
-                                    
-                                    -- Re-check if open
-                                    shopTitleLabel = findShopFrame()
-                                    if shopTitleLabel and isGuiVisible(shopTitleLabel) then
-                                        isCurrentlyOpen = true
-                                        openedByBot = true
-                                        debugPrint("[AutoBuy] Shop opened automatically by bot in Lobby.")
-                                    else
-                                        -- Teleport back if opening failed
-                                        hrp.CFrame = originalCFrame
-                                        originalCFrame = nil
-                                    end
+                            if prompt then
+                                fireproximityprompt(prompt)
+                                task.wait(1.0)
+                                
+                                -- Re-check if open
+                                shopTitleLabel = findShopFrame()
+                                if shopTitleLabel and isGuiVisible(shopTitleLabel) then
+                                    isCurrentlyOpen = true
+                                    openedByBot = true
+                                    debugPrint("[AutoBuy] Shop opened automatically by bot in Lobby.")
                                 end
                             end
                         else
@@ -1501,7 +1471,7 @@ task.spawn(function()
                         -- Dump card identity for diagnostics (non-blocking)
                         pcall(function()
                             local valStr = ""
-                            for _, sub in ipairs(getDescendantsManual(card)) do
+                            for _, sub in ipairs(card:GetDescendants()) do
                                 if sub:IsA("StringValue") or sub:IsA("IntValue") or sub:IsA("NumberValue") then
                                     valStr = valStr .. sub.Name .. "=" .. tostring(sub.Value) .. ","
                                 end
@@ -1514,7 +1484,7 @@ task.spawn(function()
                         
                         -- 1. Check stock
                         local isOutOfStock = false
-                        for _, lbl in ipairs(getDescendantsManual(card)) do
+                        for _, lbl in ipairs(card:GetDescendants()) do
                             if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                 local txt = cleanText(lbl.Text)
                                 if txt:find("habis") or txt:find("out of stock") or txt:find("kehabisan") then
@@ -1528,7 +1498,7 @@ task.spawn(function()
                             -- 2. Match item type
                             local itemType = nil
                             local itemName = ""
-                            for _, lbl in ipairs(getDescendantsManual(card)) do
+                            for _, lbl in ipairs(card:GetDescendants()) do
                                 if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                     local tType = matchItemType(lbl.Text)
                                     if tType then
@@ -1543,7 +1513,7 @@ task.spawn(function()
                                 -- 3. Get price & currency
                                 local price = 0
                                 local priceLabel = nil
-                                for _, lbl in ipairs(getDescendantsManual(card)) do
+                                for _, lbl in ipairs(card:GetDescendants()) do
                                     if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                         local txt = lbl.Text:gsub("%D", "")
                                         local num = tonumber(txt)
@@ -1602,7 +1572,7 @@ task.spawn(function()
                                         if os.time() - lastAttempt >= 5 then
                                             -- Get stock remaining from text (default to 1 if not found)
                                             local stockRemaining = 1
-                                            for _, lbl in ipairs(getDescendantsManual(card)) do
+                                            for _, lbl in ipairs(card:GetDescendants()) do
                                                 if lbl:IsA("TextLabel") or lbl:IsA("TextButton") or lbl:IsA("TextBox") then
                                                     local txt = cleanText(lbl.Text)
                                                     local num = txt:match("(%d+)%s*dalam%s*stok") or txt:match("(%d+)%s*in%s*stock") or txt:match("(%d+)%s*tersisa") or txt:match("(%d+)%s*left")
@@ -1638,7 +1608,7 @@ task.spawn(function()
                                                     -- Find Beli button for click simulation
                                                     local beliBtn = nil
                                                     -- 1st pass: find a GuiButton (TextButton/ImageButton)
-                                                    for _, desc in ipairs(getDescendantsManual(card)) do
+                                                    for _, desc in ipairs(card:GetDescendants()) do
                                                         if desc:IsA("GuiButton") then
                                                             local name = tostring(desc.Name):lower()
                                                             local txt = cleanText(desc:IsA("TextButton") and desc.Text or "")
@@ -1650,7 +1620,7 @@ task.spawn(function()
                                                     end
                                                     -- 2nd pass: look for label containing "beli" or "buy" and ascend
                                                     if not beliBtn then
-                                                        for _, desc in ipairs(getDescendantsManual(card)) do
+                                                        for _, desc in ipairs(card:GetDescendants()) do
                                                             if desc:IsA("TextLabel") or desc:IsA("TextBox") then
                                                                 local txt = cleanText(desc.Text)
                                                                 if txt == "beli" or txt == "buy" then
@@ -1669,7 +1639,7 @@ task.spawn(function()
                                                     end
                                                     -- 3rd pass: look for any UI element named BuyButton or BeliButton
                                                     if not beliBtn then
-                                                        for _, desc in ipairs(getDescendantsManual(card)) do
+                                                        for _, desc in ipairs(card:GetDescendants()) do
                                                             local name = tostring(desc.Name):lower()
                                                             if name == "buybutton" or name == "belibutton" or name == "buy" or name == "beli" then
                                                                 beliBtn = desc
@@ -1742,19 +1712,12 @@ task.spawn(function()
                         end
                     end
                     
-                    -- Close shop and teleport back if opened by bot
+                    -- Close shop if opened by bot
                     if openedByBot then
                         task.wait(1.5)
                         closeShopUI(shopFrame)
-                        task.wait(0.5)
-                        local char = player.Character
-                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                        if hrp and originalCFrame then
-                            hrp.CFrame = originalCFrame
-                        end
                         openedByBot = false
-                        originalCFrame = nil
-                        debugPrint("[AutoBuy] Shop closed and player returned to original position.")
+                        debugPrint("[AutoBuy] Shop closed successfully.")
                     end
                 end
             end)
