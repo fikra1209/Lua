@@ -133,29 +133,69 @@ local function safeHttpGet(url)
 end
 
 local function loadLibrary(fileName, urls)
-    local localOk, localContent = pcall(function()
-        if readfile then return readfile(fileName) end
+    debugPrint("loadLibrary started for: " .. tostring(fileName))
+    task.wait(0.1)
+    local localOk, localContent
+    local ok1, err1 = pcall(function()
+        if readfile then
+            localContent = readfile(fileName)
+            localOk = true
+        end
     end)
+    if not ok1 then
+        debugPrint("readfile failed: " .. tostring(err1))
+    end
+    task.wait(0.1)
     if localOk and localContent and localContent~="" then
-        local fn, err = loadstring(localContent)
+        debugPrint("Local cache read successfully. Size: " .. tostring(#localContent) .. ". Redirecting CoreGui...")
+        task.wait(0.1)
+        -- Dynamic CoreGui to PlayerGui parent redirect inside Fluent UI
+        localContent = localContent:gsub("game:GetService%'CoreGui%'", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+        localContent = localContent:gsub("game:GetService%(\"CoreGui\"%)", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+        
+        debugPrint("Compiling local content with loadstring...")
+        task.wait(0.1)
+        local fn, err
+        local compileOk = pcall(function()
+            fn, err = loadstring(localContent)
+        end)
+        if not compileOk then
+            debugPrint("loadstring compilation crashed: " .. tostring(err))
+            task.wait(0.1)
+            return nil, nil
+        end
         if fn then
             debugPrint("Loaded "..fileName.." from local cache.")
+            task.wait(0.1)
             return localContent, fn
         else
             debugPrint("Cache corrupted: "..tostring(err)..". Re-downloading...")
+            task.wait(0.1)
             pcall(function() if delfile then delfile(fileName) elseif writefile then writefile(fileName,"") end end)
         end
     end
     for _, url in ipairs(urls) do
         debugPrint("Downloading "..fileName.." from: "..url)
+        task.wait(0.1)
         local content = safeHttpGet(url)
         if content and content~="" then
-            local fn, err = loadstring(content)
-            if fn then
+            debugPrint("Downloaded. Size: " .. tostring(#content) .. ". Redirecting CoreGui and compiling...")
+            task.wait(0.1)
+            -- Dynamic CoreGui to PlayerGui parent redirect inside Fluent UI
+            content = content:gsub("game:GetService%'CoreGui%'", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+            content = content:gsub("game:GetService%(\"CoreGui\"%)", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+            
+            local fn, err
+            local compileOk = pcall(function()
+                fn, err = loadstring(content)
+            end)
+            if compileOk and fn then
                 pcall(function() if writefile then writefile(fileName,content); debugPrint("Cached "..fileName) end end)
+                task.wait(0.1)
                 return content, fn
             else
                 debugPrint("Invalid Lua from "..url..": "..tostring(err))
+                task.wait(0.1)
             end
         end
     end
@@ -169,15 +209,20 @@ local Fluent_URLs = {
     "https://ghfast.top/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
 }
 
+debugPrint("Step 4: loadLibrary starting...")
 local fluentRaw, fluentCompiled = loadLibrary("SH_Fluent.lua", Fluent_URLs)
 if not fluentRaw or not fluentCompiled then
     debugPrint("CRITICAL: Failed to load Fluent!"); return
 end
 
+debugPrint("Step 5: Fluent UI compile complete. Executing initialization...")
+task.wait(0.1)
 local loadOk, Fluent = pcall(fluentCompiled)
 if not loadOk or not Fluent then
     debugPrint("CRITICAL: Fluent exec failed: "..tostring(Fluent)); return
 end
+debugPrint("Step 6: Fluent UI executed successfully. Theme helper loading...")
+task.wait(0.1)
 
 -- ─── InterfaceManager (Inlined) ──────────────────────────────────────────────
 local InterfaceManager = {} do
@@ -287,16 +332,22 @@ local SaveManager = {} do
 end
 
 -- ─── Create Window ───────────────────────────────────────────────────────────
+debugPrint("Step 9: Fluent:CreateWindow starting...")
 local Window = Fluent:CreateWindow({
     Title="Summon Heroes", SubTitle="VICO",
     TabWidth=160, Size=UDim2.fromOffset(580,480),
-    Acrylic=false, Theme="Dark",
+    Acrylic=false,
+    Transparency=false,
+    Theme="Dark",
     MinimizeKey=Enum.KeyCode.Insert
 })
+debugPrint("Step 10: Fluent:CreateWindow completed.")
+task.wait(0.1)
 
 -- ─── Floating SH Toggle Button ───────────────────────────────────────────────
+debugPrint("Step 11: Toggle button creation starting...")
 pcall(function()
-    local cg = game:GetService("CoreGui")
+    local cg = playerGui
     local old = cg:FindFirstChild("SummonHeroesToggleGui")
     if old then old:Destroy() end
     local gui = Instance.new("ScreenGui"); gui.Name="SummonHeroesToggleGui"
@@ -327,14 +378,19 @@ pcall(function()
         end
     end)
 end)
+debugPrint("Step 12: Toggle button creation completed.")
+task.wait(0.1)
 
 -- ─── Tabs ────────────────────────────────────────────────────────────────────
+debugPrint("Step 13: Tabs creation starting...")
 local Tabs = {
     Main      = Window:AddTab({ Title="Automation",    Icon="play" }),
     Summon    = Window:AddTab({ Title="Summon & Shop", Icon="shopping-cart" }),
     Inventory = Window:AddTab({ Title="Inventory",     Icon="archive" }),
     Settings  = Window:AddTab({ Title="Settings",      Icon="settings" }),
 }
+debugPrint("Step 14: Tabs creation completed.")
+task.wait(0.1)
 
 local function GetOption(key, fallback)
     local opt = Fluent.Options[key]
