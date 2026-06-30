@@ -44,11 +44,36 @@ local mouse = player:GetMouse()
 local playerGui = player:WaitForChild("PlayerGui", 30)
 if not playerGui then return end
 
+local logCount = 0
 local function log(msg)
     local t = "[VD Bot] " .. tostring(msg)
     print(t); warn(t)
     pcall(function() if rconsoleprint then rconsoleprint(t.."\n") end end)
+    pcall(function()
+        if writefile then
+            local filename = "VD_Logs.txt"
+            logCount = logCount + 1
+            if logCount >= 1000 then
+                logCount = 1
+                writefile(filename, "=== LOG RESET ===\n" .. t .. "\n")
+            else
+                if appendfile then
+                    appendfile(filename, t .. "\n")
+                else
+                    local content = isfile(filename) and readfile(filename) or ""
+                    writefile(filename, content .. t .. "\n")
+                end
+            end
+        end
+    end)
 end
+
+pcall(function()
+    if writefile then
+        writefile("VD_Logs.txt", "=== VIOLENCE DISTRICT BOT STARTUP ===\n")
+    end
+end)
+
 log("Loading Violence District Hub v3.0...")
 
 local function clearOldESP()
@@ -80,16 +105,52 @@ local function safeGet(url)
 end
 
 local function loadLib(name, urls)
+    log("loadLib started for: " .. tostring(name))
+    task.wait(0.1)
     local ok, c = pcall(function() if readfile then return readfile(name) end end)
     if ok and c and c~="" then
-        local fn = loadstring(c)
-        if fn then log("Loaded "..name.." from cache."); return fn end
+        log("Local cache read successfully. Size: " .. tostring(#c) .. ". Redirecting CoreGui...")
+        task.wait(0.1)
+        c = c:gsub("game:GetService%'CoreGui%'", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+        c = c:gsub("game:GetService%(\"CoreGui\"%)", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+        
+        log("Compiling with loadstring...")
+        task.wait(0.1)
+        local fn, err
+        local compileOk = pcall(function()
+            fn = loadstring(c)
+        end)
+        if compileOk and fn then
+            log("Loaded "..name.." from cache.")
+            task.wait(0.1)
+            return fn
+        else
+            log("Cache corrupted or loadstring failed: "..tostring(err or "compile error"))
+            task.wait(0.1)
+        end
     end
     for _, u in ipairs(urls) do
+        log("Downloading "..name.." from: "..u)
+        task.wait(0.1)
         local c2 = safeGet(u)
         if c2 then
-            local fn = loadstring(c2)
-            if fn then pcall(function() if writefile then writefile(name,c2) end end); return fn end
+            log("Downloaded. Size: " .. tostring(#c2) .. ". Redirecting CoreGui and compiling...")
+            task.wait(0.1)
+            c2 = c2:gsub("game:GetService%'CoreGui%'", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+            c2 = c2:gsub("game:GetService%(\"CoreGui\"%)", "game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')")
+            
+            local fn, err
+            local compileOk = pcall(function()
+                fn = loadstring(c2)
+            end)
+            if compileOk and fn then
+                pcall(function() if writefile then writefile(name,c2) end end)
+                task.wait(0.1)
+                return fn
+            else
+                log("Invalid Lua from "..u..": "..tostring(err))
+                task.wait(0.1)
+            end
         end
     end
 end
@@ -101,15 +162,21 @@ local FLUENT_URLS = {
     "https://ghfast.top/https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
 }
 
+log("Step 4: loadLib starting...")
 local fluentFn = loadLib("SH_Fluent.lua", FLUENT_URLS)
 if not fluentFn then log("CRITICAL: Fluent gagal dimuat!"); return end
+
+log("Step 5: Fluent UI compile complete. Executing initialization...")
+task.wait(0.1)
 local ok, Fluent = pcall(fluentFn)
 if not ok or not Fluent then log("CRITICAL: Fluent error: "..tostring(Fluent)); return end
+log("Step 6: Fluent UI executed successfully. Theme helper loading...")
+task.wait(0.1)
 
 -- ─── InterfaceManager ─────────────────────────────────────────────────────────
 local IM = {} do
     IM.Folder   = "ViolenceDistrictSettings"
-    IM.Settings = { Theme="Dark", Acrylic=true, Transparency=true, MenuKeybind="Insert" }
+    IM.Settings = { Theme="Dark", Acrylic=false, Transparency=false, MenuKeybind="Insert" }
     function IM:SetFolder(f) self.Folder=f; if not isfolder(f) then makefolder(f) end end
     function IM:SetLibrary(lib) self.Library=lib end
     function IM:SaveSettings() writefile(self.Folder.."/options.json", HttpService:JSONEncode(self.Settings)) end
@@ -197,17 +264,22 @@ local SM = {} do
     end
 end
 
--- ─── Window ───────────────────────────────────────────────────────────────────
+log("Step 9: Fluent:CreateWindow starting...")
 local Window = Fluent:CreateWindow({
     Title="Violence District Bot", SubTitle="LuxvS Hub",
     TabWidth=160, Size=UDim2.fromOffset(580,460),
-    Acrylic=true, Theme="Dark",
+    Acrylic=false,
+    Transparency=false,
+    Theme="Dark",
     MinimizeKey=Enum.KeyCode.Insert
 })
+log("Step 10: Fluent:CreateWindow completed.")
+task.wait(0.1)
 
 -- ─── Floating VD Button ───────────────────────────────────────────────────────
+log("Step 11: Toggle button creation starting...")
 pcall(function()
-    local cg=game:GetService("CoreGui")
+    local cg=playerGui
     local old=cg:FindFirstChild("VDToggleGui"); if old then old:Destroy() end
     local gui=Instance.new("ScreenGui"); gui.Name="VDToggleGui"; gui.ResetOnSpawn=false; gui.Parent=cg
     local btn=Instance.new("TextButton"); btn.Parent=gui
@@ -236,8 +308,11 @@ pcall(function()
         end
     end)
 end)
+log("Step 12: Toggle button creation completed.")
+task.wait(0.1)
 
 -- ─── Tabs ─────────────────────────────────────────────────────────────────────
+log("Step 13: Tabs creation starting...")
 local Tabs = {
     Survivor = Window:AddTab({Title="Survivor",  Icon="user"}),
     Killer   = Window:AddTab({Title="Killer",    Icon="skull"}),
@@ -245,8 +320,17 @@ local Tabs = {
     Movement = Window:AddTab({Title="Movement",  Icon="wind"}),
     Settings = Window:AddTab({Title="Settings",  Icon="settings"}),
 }
+log("Step 14: Tabs creation completed.")
+task.wait(0.1)
 
-local function GetOpt(key, fb) local o=Fluent.Options[key]; return o and o.Value or fb end
+local function GetOpt(key, fb)
+    local ok, res = pcall(function()
+        if not Fluent or not Fluent.Options then return fb end
+        local o = Fluent.Options[key]
+        return o and o.Value or fb
+    end)
+    return ok and res or fb
+end
 
 local function autoSave()
     pcall(function()
@@ -272,6 +356,9 @@ successHook = pcall(function()
     if not hookmetamethod then error("hookmetamethod not available") end
     
     oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+        if _G.VD_Script_Id ~= thisScriptId then
+            return oldIndex(self, key)
+        end
         if not checkcaller() then
             if self == mouse then
                 if GetOpt("PistolAimbot", false) then
@@ -295,6 +382,9 @@ successHook = pcall(function()
     end))
     
     oldNewIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, key, value)
+        if _G.VD_Script_Id ~= thisScriptId then
+            return oldNewIndex(self, key, value)
+        end
         if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
             if key == "WalkSpeed" then
                 GameIntendedSpeed = value
@@ -317,6 +407,9 @@ if not successHook then
         
         setreadonly(mt, false)
         mt.__index = newcclosure(function(self, key)
+            if _G.VD_Script_Id ~= thisScriptId then
+                return oldIndex(self, key)
+            end
             if not checkcaller() then
                 if self == mouse then
                     if GetOpt("PistolAimbot", false) then
@@ -340,6 +433,9 @@ if not successHook then
         end)
         
         mt.__newindex = newcclosure(function(self, key, value)
+            if _G.VD_Script_Id ~= thisScriptId then
+                return oldNewIndex(self, key, value)
+            end
             if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
                 if key == "WalkSpeed" then
                     GameIntendedSpeed = value
@@ -432,27 +528,43 @@ local function getKillerChar()
     if killerCharacterCache and killerCharacterCache.Parent then
         return killerCharacterCache
     end
-    
-    -- 1. Scan players first
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and p.Character and isKillerChar(p.Character) then
-            killerCharacterCache = p.Character
-            return p.Character
-        end
-    end
-    
-    -- 2. Scan workspace for NPC Killers
-    for _, child in ipairs(workspace:GetChildren()) do
-        if child:IsA("Model") and child ~= player.Character and child:FindFirstChildOfClass("Humanoid") then
-            if isKillerChar(child) then
-                killerCharacterCache = child
-                return child
-            end
-        end
-    end
-    
     return nil
 end
+
+-- Background thread to update killer cache periodically
+task.spawn(function()
+    local function updateCache()
+        local found = nil
+        -- 1. Scan players first
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and p.Character and isKillerChar(p.Character) then
+                found = p.Character
+                break
+            end
+        end
+        -- 2. Scan workspace for NPC Killers if not found
+        if not found then
+            for _, child in ipairs(workspace:GetChildren()) do
+                if child:IsA("Model") and child ~= player.Character and child:FindFirstChildOfClass("Humanoid") then
+                    if isKillerChar(child) then
+                        found = child
+                        break
+                    end
+                end
+            end
+        end
+        killerCharacterCache = found
+    end
+    
+    -- Run once immediately
+    pcall(updateCache)
+    
+    while true do
+        task.wait(1.0)
+        if _G.VD_Script_Id ~= thisScriptId then break end
+        pcall(updateCache)
+    end
+end)
 
 local function getNearestPallet()
     local myHrp = getHRP(); if not myHrp then return nil end
@@ -638,17 +750,103 @@ local function scanInterractables()
 end
 
 -- Dump lengkap workspace untuk diagnostics
+-- Dump lengkap workspace untuk diagnostics
 local function dumpWorkspace()
-    log("=== WORKSPACE DUMP ===")
-    for _, child in ipairs(workspace:GetChildren()) do
-        log("[ws] " .. child.Name .. " (" .. child.ClassName .. ")")
-        if child:IsA("Folder") or child:IsA("Model") then
-            for _, sub in ipairs(child:GetChildren()) do
-                log("  [ws] " .. sub.Name .. " (" .. sub.ClassName .. ")")
+    log("=== RUNNING EXTENDED WORKSPACE DIAGNOSTICS ===")
+    local logTable = {}
+    table.insert(logTable, "=== Violence District Extended Diagnostics ===")
+    table.insert(logTable, "GameId: " .. tostring(game.GameId))
+    table.insert(logTable, "PlaceId: " .. tostring(game.PlaceId))
+    
+    -- Players Info
+    table.insert(logTable, "\n--- Players ---")
+    pcall(function()
+        for _, p in ipairs(Players:GetPlayers()) do
+            local teamName = p.Team and p.Team.Name or "No Team"
+            local charName = p.Character and p.Character.Name or "No Character"
+            table.insert(logTable, string.format("Player: %s | Display: %s | Team: %s | Char: %s", p.Name, p.DisplayName, teamName, charName))
+            
+            -- Attributes
+            local attrs = {}
+            for name, val in pairs(p:GetAttributes()) do
+                table.insert(attrs, name .. "=" .. tostring(val))
+            end
+            if #attrs > 0 then
+                table.insert(logTable, "  Attributes: " .. table.concat(attrs, ", "))
+            end
+            
+            -- Value children
+            local vals = {}
+            for _, child in ipairs(p:GetChildren()) do
+                if child:IsA("ValueBase") then
+                    table.insert(vals, child.Name .. " (" .. child.ClassName .. ") = " .. tostring(child.Value))
+                end
+            end
+            if #vals > 0 then
+                table.insert(logTable, "  Values: " .. table.concat(vals, ", "))
             end
         end
-    end
-    log("=== END DUMP ===")
+    end)
+    
+    -- Map Structure
+    table.insert(logTable, "\n--- Workspace Key Targets ---")
+    pcall(function()
+        local function scan(parent, depth, maxDepth)
+            if depth > maxDepth then return end
+            for _, child in ipairs(parent:GetChildren()) do
+                local name = child.Name
+                local lowerName = name:lower()
+                local match = false
+                
+                if lowerName:find("generator") or lowerName == "gen" or lowerName:match("^gen%s*%d") or lowerName:match("^gen_%d") or lowerName:match("^gen-%d") or lowerName:find("mesin") or
+                   lowerName:find("pallet") or lowerName:find("plank") or
+                   lowerName:find("gate") or lowerName:find("exit") or lowerName == "lever" then
+                    match = true
+                end
+                
+                if match then
+                    table.insert(logTable, string.format("[%d] Match: %s (%s) | Parent: %s", depth, child:GetFullName(), child.ClassName, child.Parent.Name))
+                end
+                
+                if child:IsA("Folder") or child:IsA("Model") then
+                    scan(child, depth + 1, maxDepth)
+                end
+            end
+        end
+        scan(workspace, 1, 5)
+    end)
+    
+    -- Map folder specific
+    table.insert(logTable, "\n--- Map Folder Specific ---")
+    pcall(function()
+        local map = workspace:FindFirstChild("Map")
+        if map then
+            for _, child in ipairs(map:GetChildren()) do
+                table.insert(logTable, string.format("  - %s (%s)", child.Name, child.ClassName))
+                if child.Name == "new Generators" or child.Name:find("Generator") then
+                    table.insert(logTable, "    -> Inside " .. child.Name .. ":")
+                    for _, sub in ipairs(child:GetChildren()) do
+                        table.insert(logTable, string.format("      * %s (%s)", sub.Name, sub.ClassName))
+                        for _, part in ipairs(sub:GetChildren()) do
+                            table.insert(logTable, string.format("        + Part: %s (%s)", part.Name, part.ClassName))
+                        end
+                    end
+                end
+            end
+        else
+            table.insert(logTable, "Workspace.Map not found.")
+        end
+    end)
+    
+    -- Write File
+    pcall(function()
+        if writefile then
+            writefile("vd_map_diagnostics.txt", table.concat(logTable, "\n"))
+            log("Diagnostics written to vd_map_diagnostics.txt successfully!")
+        else
+            log("writefile is not available in this executor!")
+        end
+    end)
 end
 
 local function scanPlayers()
