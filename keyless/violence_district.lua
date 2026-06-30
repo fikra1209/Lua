@@ -1847,3 +1847,11 @@ task.spawn(function()
         end
     end)
 end)
+
+-- Auto run diagnostics on startup to make it easier for the user
+task.spawn(function()
+    task.wait(5)
+    if _G.VD_Script_Id == thisScriptId then
+        pcall(dumpWorkspace)
+    end
+end)
